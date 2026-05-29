@@ -163,8 +163,22 @@ def _fold(s: str) -> str:
     return unicodedata.normalize("NFKD", s or "").encode("ascii", "ignore").decode()
 
 
+# Common name<->acronym equivalences so e.g. "Fox Sports 1" is recognised as "FS1"
+# (the plain normalized forms don't match). Applied to the dedup key.
+_ALIAS = [
+    (r"foxsports(\d)", r"fs\1"),       # Fox Sports 1/2 -> FS1/FS2
+    (r"foxsports$", "fs1"),            # bare "Fox Sports" -> FS1
+    (r"bigtennetwork", "btn"),
+    (r"secnetwork", "secn"),
+    (r"^espn(\d)", r"espn\1"),
+]
+
+
 def _norm(s: str) -> str:
-    return re.sub(r"[^a-z0-9]", "", _fold(s).lower())
+    n = re.sub(r"[^a-z0-9]", "", _fold(s).lower())
+    for pat, repl in _ALIAS:
+        n = re.sub(pat, repl, n)
+    return n
 
 
 def _fetch():

@@ -211,6 +211,17 @@ def inject_cmd(input_file):
     console.print(f"Streams added: {stats['streams_added']}")
 
 
+@main.command("famelack-import-curated")
+@click.option("--timeout", type=float, default=DEFAULT_TIMEOUT)
+@click.option("--concurrency", type=int, default=DEFAULT_TEST_CONCURRENCY)
+def famelack_import_curated(timeout, concurrency):
+    """Bulk-import the full curated famelack candidate set (deduped, ffprobe-validated, per-genre)."""
+    from harvester.famelack_import import import_curated
+    stats = import_curated(timeout=timeout, concurrency=concurrency)
+    for k, v in stats.items():
+        console.print(f"  {k}: {v}")
+
+
 @main.command("famelack-curate")
 def famelack_curate():
     """Report curated NEW-channel candidates from famelack (relevance + quality filtered)."""

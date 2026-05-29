@@ -40,9 +40,10 @@ _UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like
 
 
 def _key(name: str) -> str:
-    """Dedup key: fold accents (Al Día == Al Dia) then normalize."""
-    folded = unicodedata.normalize("NFKD", name or "").encode("ascii", "ignore").decode()
-    return _normalize(folded)
+    """Dedup key: fold accents (Al Día == Al Dia) + apply acronym aliases (Fox Sports 1
+    == FS1) via the curation normalizer, so semantic duplicates collapse."""
+    from harvester.famelack_curate import _norm
+    return _norm(name)
 
 
 def _fetch_famelack() -> list[dict]:
@@ -155,6 +156,99 @@ async def _run(keyword: str, genre: str, logo_slug: str | None, timeout: float, 
 def import_channels(keyword: str, genre: str, logo_slug: str | None = None,
                     timeout: float = DEFAULT_TIMEOUT, concurrency: int = DEFAULT_TEST_CONCURRENCY) -> dict:
     return asyncio.run(_run(keyword, genre, logo_slug, timeout, concurrency))
+
+
+# --- bulk import of the curated candidate set --------------------------------
+
+CURATED_FILE = BASE / "data" / "famelack_curated.json"
+
+
+async def _run_curated(timeout: float, concurrency: int) -> dict:
+    from collections import Counter, defaultdict
+    from harvester.consolidate import build_display
+    from harvester.regional import order_streams
+
+    # 1. refresh the curated list (applies all current filters/decisions) and load it
+    from harvester.famelack_curate import curate
+    curate()
+    cands = json.loads(CURATED_FILE.read_text(encoding="utf-8"))
+
+    catalog = json.loads(CATALOG.read_text(encoding="utf-8"))
+    metas = catalog["metas"]
+    existing = {_key(c["name"]) for c in metas}
+
+    # 2. re-dedup vs current catalog + within batch (accent-folded)
+    seen, prepared = set(), []
+    for c in cands:
+        name = (c.get("name") or "").strip()
+        k = _key(name)
+        if not name or k in existing or k in seen:
+            continue
+        urls = [u for u in (c.get("stream_urls") or []) if isinstance(u, str) and u.startswith("http")]
+        if not urls:
+            continue
+        seen.add(k)
+        prepared.append({"name": name, "genre": c.get("genre", "Entertainment"), "urls": urls})
+    print(f"curated channels to import (deduped): {len(prepared)}")
+
+    # 3. ffprobe-validate every candidate URL in one batch
+    pairs = [(c["name"], u) for c in prepared for u in c["urls"]]
+    results = await test_streams([ParsedStream(url=u, channel_name=nm) for nm, u in pairs],
+                                 timeout=timeout, concurrency=concurrency)
+    res = {r.url: r for r in results}
+    working = {r.url for r in results if r.status == StreamStatus.WORKING}
+    print(f"working streams: {len(working)} / {len(pairs)}")
+
+    # 4. build channels with >= 1 working stream
+    imported_by_genre = Counter()
+    touched_genres = set()
+    META_DIR.mkdir(parents=True, exist_ok=True)
+    STREAM_DIR.mkdir(parents=True, exist_ok=True)
+    for c in prepared:
+        good = [u for u in c["urls"] if u in working]
+        if not good:
+            continue
+        cid = f"ustv-{uuid.uuid4()}"
+        genre = c["genre"]
+        logo, poster = _art(c["name"], None)  # None -> iptv-org logo lookup (famelack has none)
+        entry = {
+            "id": cid, "tvgId": "", "name": c["name"], "country": "USA", "countryCode": "us",
+            "genre": genre, "logo": logo, "time": None, "type": "tv",
+            "poster": poster, "genres": [genre], "streams": [],
+        }
+        stream_entries = []
+        for u in good:
+            r = res.get(u)
+            q = _quality_label({"codecs": {"resolution": r.codecs.resolution, "video": r.codecs.video}} if r else {})
+            nm, desc = build_display(q, u, c["name"])
+            stream_entries.append({"url": u, "behaviorHints": {"notWebReady": True}, "name": nm, "description": desc})
+        stream_entries, _ = order_streams(stream_entries)
+        metas.append(entry)
+        (META_DIR / f"{cid}.json").write_text(json.dumps({"meta": entry}, separators=(",", ":")), encoding="utf-8")
+        (STREAM_DIR / f"{cid}.json").write_text(json.dumps({"streams": stream_entries}, separators=(",", ":")), encoding="utf-8")
+        imported_by_genre[genre] += 1
+        touched_genres.add(genre)
+
+    # 5. rewrite catalog + regenerate every affected genre slice
+    total_imported = sum(imported_by_genre.values())
+    if total_imported:
+        CATALOG.write_text(json.dumps(catalog, separators=(",", ":")), encoding="utf-8")
+        GENRE_DIR.mkdir(parents=True, exist_ok=True)
+        by_genre = defaultdict(list)
+        for ch in metas:
+            if ch.get("genre"):
+                by_genre[ch["genre"]].append(ch)
+        for g in touched_genres:
+            (GENRE_DIR / f"genre={g}.json").write_text(
+                json.dumps({"metas": by_genre[g]}, separators=(",", ":")), encoding="utf-8")
+
+    return {"curated": len(prepared), "working_streams": len(working),
+            "channels_imported": total_imported, "by_genre": dict(imported_by_genre),
+            "catalog_total": len(metas)}
+
+
+def import_curated(timeout: float = DEFAULT_TIMEOUT, concurrency: int = DEFAULT_TEST_CONCURRENCY) -> dict:
+    return asyncio.run(_run_curated(timeout, concurrency))
 
 
 if __name__ == "__main__":
