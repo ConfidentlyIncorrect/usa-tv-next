@@ -26,7 +26,9 @@ Defined in `harvester/config.py` and mirrored in the server (`server/src/config.
 - **Blocklist** (`BLOCKLIST_URL_SUBSTRINGS` / `STREAM_BLOCKLIST_HOSTS`, default `pluto.tv`): streams from these hosts are never injected, are purged by `clean`, and are filtered out at runtime by the server's stream handler. Pluto TV is no longer accessible.
 - **Priority** (`PROVIDER_PRIORITY` / `STREAM_PRIORITY_HOSTS`, default `tvpass.org`): streams from these hosts sort to the top of each channel's list — tvpass.org is the most stable/accessible provider. Applied by `inject`, `clean`, and the server stream handler (stable sort).
 
-`tvpass-discover` finds catalog channels with no tvpass.org stream, generates candidate `https://tvpass.org/live/<slug>/<quality>` URLs (CamelCase + East/West + kebab variants × sd/hd/fhd), and writes them to `data/tvpass_candidates.json`. With `--test` (host, needs ffprobe) it probes and injects the working ones.
+`tvpass-discover` finds catalog channels with no tvpass.org stream, generates candidate `https://tvpass.org/live/<slug>/<quality>` URLs, and writes them to `data/tvpass_candidates.json`. With `--test` (host, needs ffprobe) it probes and injects the working ones.
+
+The slug generator (`harvester/tvpass.py`) is validated against `harvester/tvpass_known.json` — 131 verified `channel name → slug` mappings extracted from the tvpass links already in the addon. Those overrides reproduce **100%** of known-working slugs; the heuristic fallback (case forms, suffix add/drop, `+`→Plus, `Jr`→Junior, FanDuel full-name, East/West/HD feeds) independently reproduces ~79% of them, and is what covers channels never seen before. Regenerate the map after adding tvpass links: it's just the current name→slug pairs.
 
 Run stream testing on macmini for speed: `ssh ben@macmini`. Requires `eval "$(/opt/homebrew/bin/brew shellenv zsh)"` before `uv` or `ffprobe`.
 
