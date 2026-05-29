@@ -18,7 +18,10 @@ uv run python -m harvester clean            # Purge blocklisted providers (Pluto
 uv run python -m harvester tvpass-discover --probe # Scrape tvpass directory, read real slugs, inject live links
 uv run python -m harvester logos            # Grab logos from iptv-org for channels missing a local logo file
 uv run python -m harvester famelack-enrich  # Add ffprobe-validated famelack streams to EXISTING channels (no new channels)
+uv run python -m harvester famelack-import --keyword telemundo --genre Latino --logo telemundo-us  # Import NEW channels (curated, deduped, validated)
 ```
+
+`famelack-import` adds NEW catalog channels from famelack filtered by name keyword: drops geo-blocked + duplicates (accent-folded normalized name, vs catalog and intra-batch), ffprobe-validates streams (imports only channels with a working stream), generates a `ustv-<uuid>` id, writes catalog + genre slice + meta + stream files, and assigns art (reuses a repo logo via `--logo <slug>`, else iptv-org). This is the curated/test path for growing beyond the original 169 (e.g. the Telemundo test added Acción / Corpus Christi / Noticias Ahora / Romance, 169 -> 173).
 
 ## Logos / banners / subtitles
 

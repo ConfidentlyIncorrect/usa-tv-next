@@ -211,6 +211,20 @@ def inject_cmd(input_file):
     console.print(f"Streams added: {stats['streams_added']}")
 
 
+@main.command("famelack-import")
+@click.option("--keyword", required=True, help="Import famelack channels whose name contains this (e.g. 'telemundo').")
+@click.option("--genre", required=True, help="Genre to assign the imported channels (e.g. 'Latino').")
+@click.option("--logo", "logo_slug", default=None, help="Repo art slug to reuse (e.g. 'telemundo-us'); else iptv-org.")
+@click.option("--timeout", type=float, default=DEFAULT_TIMEOUT)
+@click.option("--concurrency", type=int, default=DEFAULT_TEST_CONCURRENCY)
+def famelack_import(keyword, genre, logo_slug, timeout, concurrency):
+    """Import NEW catalog channels from famelack (deduped, ffprobe-validated). Curated/test import."""
+    from harvester.famelack_import import import_channels
+    stats = import_channels(keyword, genre, logo_slug, timeout=timeout, concurrency=concurrency)
+    for k, v in stats.items():
+        console.print(f"  {k}: {v}")
+
+
 @main.command("famelack-enrich")
 @click.option("--timeout", type=float, default=DEFAULT_TIMEOUT)
 @click.option("--concurrency", type=int, default=DEFAULT_TEST_CONCURRENCY)
