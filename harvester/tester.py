@@ -25,6 +25,12 @@ async def _resolve_host(host: str, timeout: float = 3.0) -> bool:
         return False
 
 
+_FFPROBE_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+)
+
+
 async def test_stream(url: str, timeout: float = 8.0) -> StreamTestResult:
     start = time.monotonic()
     try:
@@ -34,8 +40,13 @@ async def test_stream(url: str, timeout: float = 8.0) -> StreamTestResult:
             "-print_format", "json",
             "-show_streams",
             "-show_format",
-            "-analyzeduration", "2000000",
-            "-probesize", "500000",
+            # Send a browser UA — some CDNs return an empty manifest to the default
+            # ffmpeg/Lavf agent, which made real video streams look empty/audio-only.
+            "-user_agent", _FFPROBE_UA,
+            # Larger probe so HLS variant playlists reveal their video track within
+            # the window (the old 500k/2s often missed video on live masters).
+            "-analyzeduration", "5000000",
+            "-probesize", "5000000",
             "-timeout", str(int(timeout * 1_000_000)),
             "-i", url,
             stdout=asyncio.subprocess.PIPE,
@@ -55,15 +66,24 @@ async def test_stream(url: str, timeout: float = 8.0) -> StreamTestResult:
         codecs = CodecInfo()
         try:
             data = json.loads(stdout)
+            best_w = best_h = 0
             for stream in data.get("streams", []):
-                if stream.get("codec_type") == "video" and not codecs.video:
-                    codecs.video = stream.get("codec_name", "")
-                    w = stream.get("width", 0)
-                    h = stream.get("height", 0)
-                    if w and h:
-                        codecs.resolution = f"{w}x{h}"
-                elif stream.get("codec_type") == "audio" and not codecs.audio:
+                ctype = stream.get("codec_type")
+                if ctype == "video":
+                    # HLS masters list one video stream per variant — keep the largest,
+                    # so the quality label reflects the best available rendition.
+                    w = stream.get("width", 0) or 0
+                    h = stream.get("height", 0) or 0
+                    if not codecs.video:
+                        codecs.video = stream.get("codec_name", "")
+                    if w * h >= best_w * best_h:
+                        best_w, best_h = w, h
+                        if stream.get("codec_name"):
+                            codecs.video = stream.get("codec_name", "")
+                elif ctype == "audio" and not codecs.audio:
                     codecs.audio = stream.get("codec_name", "")
+            if best_w and best_h:
+                codecs.resolution = f"{best_w}x{best_h}"
             fmt = data.get("format", {})
             if fmt.get("bit_rate"):
                 codecs.bitrate = fmt["bit_rate"]

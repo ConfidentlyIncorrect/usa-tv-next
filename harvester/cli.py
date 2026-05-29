@@ -211,6 +211,17 @@ def inject_cmd(input_file):
     console.print(f"Streams added: {stats['streams_added']}")
 
 
+@main.command("famelack-curate")
+def famelack_curate():
+    """Report curated NEW-channel candidates from famelack (relevance + quality filtered)."""
+    from harvester.famelack_curate import curate
+    stats = curate()
+    console.print(f"[bold]Curated candidates:[/] {stats['candidates']}")
+    console.print(f"By genre: {stats['by_genre']}")
+    console.print(f"Rejected: {stats['rejected']}")
+    console.print(f"Report written: {stats['report']}")
+
+
 @main.command("famelack-import")
 @click.option("--keyword", required=True, help="Import famelack channels whose name contains this (e.g. 'telemundo').")
 @click.option("--genre", required=True, help="Genre to assign the imported channels (e.g. 'Latino').")
@@ -243,6 +254,17 @@ def logos(force):
     from harvester.logos import grab_missing
     stats = grab_missing(force=force)
     console.print(f"  present: {stats['present']}, downloaded: {stats['downloaded']}, missing: {stats['missing']}")
+
+
+@main.command()
+@click.option("--dry-run", is_flag=True, default=False, help="Report only; do not write files.")
+@click.option("--concurrency", type=int, default=DEFAULT_TEST_CONCURRENCY)
+def consolidate(dry_run, concurrency):
+    """Re-probe all streams: fix Audio/video labels, drop dead, add unique provider identifiers."""
+    from harvester.consolidate import consolidate as do_consolidate
+    stats = do_consolidate(dry_run=dry_run, concurrency=concurrency)
+    for k, v in stats.items():
+        console.print(f"  {k}: {v}")
 
 
 @main.command()
