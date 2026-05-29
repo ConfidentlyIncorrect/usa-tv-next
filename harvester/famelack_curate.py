@@ -192,12 +192,32 @@ def _fetch():
     return json.loads(raw.decode("utf-8", "ignore"))
 
 
-# Collapse numbered duplicate feeds: "ABC News Live 7" -> base "abc news live".
+# Collapse numbered MULTIPLEX feeds: "ABC News Live 7" -> base "abc news live".
+# Only multi-word bases are treated as multiplex siblings; single-word "ESPN 2",
+# "HBO 2", "Showtime 2" are DISTINCT brand channels and must NOT be collapsed.
 _NUM_SUFFIX = re.compile(r"\s+\d+$")
 
 
 def _base_name(name: str) -> str:
     return _NUM_SUFFIX.sub("", name).strip()
+
+
+def _multiplex_base(name: str) -> str | None:
+    """For a NUMBERED name, the number-stripped base IF multi-word (a real multiplex feed
+    like 'ABC News Live 7'). None for single-word brands ('ESPN 2') so they survive, and
+    None for names without a trailing number."""
+    base = _NUM_SUFFIX.sub("", name).strip()
+    if base != name and len(base.split()) >= 2:
+        return _norm(base)
+    return None
+
+
+def _mw_base_key(name: str) -> str | None:
+    """The multi-word base key of ANY name (numbered or not), for registering existing
+    catalog channels so later-imported numbered siblings are recognised. e.g.
+    'ABC News Live' and 'ABC News Live 1' both -> 'abcnewslive'; 'ESPN'/'ESPN 2' -> None."""
+    base = _NUM_SUFFIX.sub("", name).strip()
+    return _norm(base) if len(base.split()) >= 2 else None
 
 
 def _blocked(name: str) -> str | None:
@@ -263,7 +283,11 @@ def _build_genre_map() -> dict:
 
 def curate() -> dict:
     nano = _build_genre_map()
-    ours = {_norm(c["name"]) for c in json.loads(CATALOG.read_text(encoding="utf-8"))["metas"]}
+    our_metas = json.loads(CATALOG.read_text(encoding="utf-8"))["metas"]
+    ours = {_norm(c["name"]) for c in our_metas}
+    # multiplex bases already in the catalog (e.g. "abc news live" from "ABC News Live"),
+    # so numbered siblings imported in a LATER run are still recognised as duplicates.
+    ours_bases = {b for c in our_metas if (b := _mw_base_key(c["name"]))}
     us = _fetch()
 
     rejected = defaultdict(int)        # bucketed counts
@@ -296,12 +320,13 @@ def curate() -> dict:
             rejected[bucket] += 1
             removed_detail.append({"name": name, "reason": reason})
             continue
-        base = _norm(_base_name(name))
-        if base in seen_base:
+        mbase = _multiplex_base(name)  # multi-word numbered sibling, e.g. "abc news live"
+        if mbase and (mbase in seen_base or mbase in ours_bases):
             rejected["numbered_duplicate"] += 1
-            removed_detail.append({"name": name, "reason": "numbered-duplicate feed"})
+            removed_detail.append({"name": name, "reason": "numbered-multiplex duplicate feed"})
             continue
-        seen_base.add(base)
+        if mbase:
+            seen_base.add(mbase)
         genre = mapped[0]
         by_genre[genre].append(name)
         candidates.append({"name": name, "nanoid": c.get("nanoid"), "genre": genre,
