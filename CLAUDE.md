@@ -15,9 +15,15 @@ uv run python -m harvester report           # Generate report from test results
 uv run python -m harvester run              # Harvest + test + report in sequence
 uv run python -m harvester.inject           # Inject working streams into catalog channels
 uv run python -m harvester clean            # Purge blocklisted providers (Pluto) + reorder tvpass-first
-uv run python -m harvester tvpass-discover  # Generate tvpass candidates for channels missing them
-uv run python -m harvester tvpass-discover --test  # Probe candidates with ffprobe + inject working ones
+uv run python -m harvester tvpass-discover --probe # Scrape tvpass directory, read real slugs, inject live links
+uv run python -m harvester logos            # Grab logos from iptv-org for channels missing a local logo file
 ```
+
+## Logos / banners / subtitles
+
+- **Logos/banners**: the repo already ships `public/logos/usa/<slug>.png` + `public/posters/usa/<slug>.png` for all current channels (used as-is, never overwritten). famelack carries NO logo data. For NEW channels, `harvester/logos.py` (CLI `logos`) sources art from the iptv-org open dataset (`channels.json` + `logos.json`) by matching channel name (primary names take priority over alt_names) and picking the best logo (in_use → format → largest), downloading to `public/logos/usa/`.
+- **Subtitles**: famelack and tvpass both serve HLS (`.m3u8`) with no separate subtitle field, so there is nothing to inject per stream. Every injected entry sets `behaviorHints.notWebReady=true`, so Stremio/Nuvio use a native HLS player that surfaces the stream's embedded WebVTT subtitle tracks automatically — identical behavior to tvpass.
+- **No duplicate channels**: all injectors (`inject`, `tvpass-discover`, `logos`, famelack fill) only enrich EXISTING catalog channels matched by id/name and dedup streams by URL; none create catalog entries. Any future bulk import of new famelack channels must dedup by normalized name against the existing roster.
 
 ## Provider Policy
 

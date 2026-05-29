@@ -212,6 +212,15 @@ def inject_cmd(input_file):
 
 
 @main.command()
+@click.option("--force", is_flag=True, default=False, help="Re-download logos even if a local file exists.")
+def logos(force):
+    """Grab channel logos from iptv-org for catalog channels missing a local logo file."""
+    from harvester.logos import grab_missing
+    stats = grab_missing(force=force)
+    console.print(f"  present: {stats['present']}, downloaded: {stats['downloaded']}, missing: {stats['missing']}")
+
+
+@main.command()
 def clean():
     """Remove blocklisted providers (e.g. Pluto TV) and reorder streams (tvpass first)."""
     from harvester.clean import clean as do_clean
