@@ -1,11 +1,13 @@
 # USA TV Next
 
-190 live TV channels across 10 genres: Sports, Entertainment, News, Premium, Kids, Lifestyle, Documentaries, Local, Music, Latino.
+173 live US TV channels across 10 genres: Local, News, Sports, Entertainment, Premium, Lifestyle, Kids, Documentaries, Music, Latino.
 
 This repo ships the addon in **two modes**:
 
 1. **Static** (`manifest.json` + `catalog/` + `meta/` + `stream/`) — hosted entirely on GitHub raw URLs, no server. Streams only, no live guide.
-2. **Combined Docker server** (`server/`) — a single Node addon that serves catalog **+ EPG-enriched meta + streams** from one always-on instance. This is the merged successor to the separate `stremio-usatv-epg` guide addon: one install, no meta-resource collision, live Now Playing / Up Next / day schedule.
+2. **Combined Docker server** (`server/`) — a single Node addon that serves catalog **+ EPG-enriched meta + streams** from one always-on instance. This is the merged successor to the separate `stremio-usatv-epg` guide addon: one install, no meta-resource collision, live Now Playing / Up Next / day schedule. **Recommended.**
+
+> Install only ONE of these in a client. If you install both the static addon and the Docker addon they share the `ustv` id space and collide on the `meta` resource.
 
 ## Install (static)
 
@@ -17,11 +19,17 @@ stremio://raw.githubusercontent.com/yowmamasita/usa-tv-next/main/manifest.json
 
 ## Combined Docker server (`server/`)
 
-A single addon (`community.usa-tv-next`) providing `catalog` + `meta` + `stream` for the `ustv` id space, with an integrated EPG.
+A single addon (`community.usa-tv-next`) providing `catalog` + `meta` + `stream` for the `ustv` id space, with an integrated EPG. Works in Stremio and Nuvio (the EPG renders in the channel detail view, same place as a movie synopsis).
 
 ```bash
 docker compose up -d --build
 curl -s http://localhost:7001/manifest.json     # should list catalog, meta, stream
+```
+
+Or pull the prebuilt image published by CI:
+
+```bash
+docker run -d -p 7001:7001 --memory=4g ghcr.io/confidentlyincorrect/usa-tv-next:latest
 ```
 
 **Hybrid data layer:** bundled local JSON (in the image) is the offline baseline; an interval (`DATA_REFRESH_HOURS`) fetches the latest roster from GitHub and writes an emergency cache to the `usatv-cache` volume. Read precedence is **live fetch → emergency cache → bundled local**, so the addon keeps working if GitHub access is lost. The EPG (`epg.pw`) is fetched on `EPG_REFRESH_HOURS` and its matched subset is cached to disk for cold-start resilience.
@@ -33,11 +41,13 @@ curl -s http://localhost:7001/manifest.json     # should list catalog, meta, str
 | `GITHUB_RAW_BASE` | this repo @ `main` | Source for the roster/stream fetch leg |
 | `DATA_REFRESH_HOURS` | `6` | Roster fetch + emergency-cache interval |
 | `EPG_REFRESH_HOURS` | `6` | EPG re-fetch interval |
+| `STREAM_BLOCKLIST_HOSTS` | `pluto.tv` | Stream hosts never served (comma-separated) |
+| `STREAM_PRIORITY_HOSTS` | `tvpass.org` | Stream hosts sorted to the top of each channel |
 | `TZ` | `America/Denver` | Schedule display timezone |
 | `LOG_LEVEL` | `info` | Set `debug` for per-request routing/cache/fetch logs |
 | `NODE_OPTIONS` | `--max-old-space-size=3072` | Headroom for the ~188 MB EPG parse (needs ~4 GB) |
 
-> Stremio Web requires HTTPS; for LAN/desktop use the raw `http://<host>:7001/manifest.json`, or front it with a reverse proxy / Cloudflare Tunnel for HTTPS.
+> Stremio Web requires HTTPS; for LAN/desktop use the raw `http://<host>:7001/manifest.json`, or front it with a reverse proxy / Cloudflare Tunnel for HTTPS. CI (`.github/workflows/docker.yml`) builds and pushes the image to GHCR on every push to `main`.
 
 ## Routes
 
@@ -49,16 +59,60 @@ curl -s http://localhost:7001/manifest.json     # should list catalog, meta, str
 | Meta | `/meta/tv/{id}.json` |
 | Stream | `/stream/tv/{id}.json` |
 
+## Provider policy
+
+- **tvpass.org is prioritized** — its streams sort to the top of each channel (most stable provider). Tagged `TP`.
+- **pluto.tv is blocked** — no longer accessible; filtered at injection time, purged by `clean`, and dropped at runtime by the server.
+- famelack streams are tagged `FL`; other harvested streams use a host-based tag.
+- All stream entries set `behaviorHints.notWebReady=true` so the native HLS player surfaces embedded subtitle tracks automatically.
+
+## Data pipeline (the `harvester/`)
+
+Python ≥3.10 managed with `uv`; stream testing needs `ffprobe` (ffmpeg). Run on a fast host (e.g. a Mac mini).
+
+```bash
+uv sync                                       # install deps
+
+# discover + test + inject from 167 configured sources (sources.yaml)
+uv run python -m harvester harvest            # scrape all sources for M3U/JSON streams
+uv run python -m harvester test               # ffprobe-test (DNS pre-filter + ffprobe)
+uv run python -m harvester inject             # match working streams to catalog channels
+uv run python -m harvester run                # harvest + test + report in sequence
+uv run python -m harvester prune              # remove dead streams from the catalog
+
+# providers / maintenance
+uv run python -m harvester clean              # purge blocklisted providers (Pluto) + reorder tvpass-first
+uv run python -m harvester tvpass-discover --probe   # scrape tvpass directory, read real slugs, inject live links
+uv run python -m harvester logos              # grab logos from iptv-org for channels missing local art
+
+# famelack (famelack.com data, served as gzipped JSON on GitHub)
+uv run python -m harvester famelack-enrich    # add validated famelack streams to EXISTING channels
+uv run python -m harvester famelack-import --keyword telemundo --genre Latino --logo telemundo-us
+                                              # import NEW channels (curated, deduped, ffprobe-validated)
+```
+
+Notes:
+- `famelack-import` never creates duplicate channels — it drops geo-blocked entries and accent-folded name duplicates (vs the catalog and within the batch), and only imports channels with a working stream.
+- `tvpass-discover --probe` is rate-limit aware (`--delay`, default 5s). Many RSN/sports feeds 404 when no live event is on, so re-run periodically.
+- Logos: the repo already ships art for every current channel under `public/`. famelack has no logos; new channels fall back to the iptv-org open dataset.
+
+## Sources
+
+167 sources in `sources.yaml` across 6 handler types (`github`, `direct`, `website`, `telegram`, `paste`, `famelack`). Notably **famelack** (`harvester/sources/famelack.py`) reads famelack.com's full dataset (1361 US channels with direct stream URLs) straight from its public GitHub repo — no scraping. Pluto TV sources have been removed.
+
 ## Structure
 
 ```
 manifest.json
-catalog/tv/all.json
-catalog/tv/all/genre={Genre}.json
+catalog/tv/all.json                  # roster (173 channels)
+catalog/tv/all/genre={Genre}.json    # per-genre slices
 meta/tv/ustv-{uuid}.json
 stream/tv/ustv-{uuid}.json
 public/logo.png
 public/background.jpg
 public/logos/usa/{channel}.png
 public/posters/usa/{channel}.png
+server/                              # combined Node/Docker addon (see above)
+harvester/                           # Python scrape/test/inject/import pipeline
+.github/workflows/docker.yml         # CI: build + push image to GHCR
 ```
