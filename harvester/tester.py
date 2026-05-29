@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import socket
 import time
 from collections import defaultdict
@@ -29,6 +30,57 @@ _FFPROBE_UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
 )
+
+# HLS video codec fourccs seen in #EXT-X-STREAM-INF CODECS=... attributes.
+_HLS_VIDEO_CODECS = ("avc1", "avc3", "hev1", "hvc1", "hevc", "mp4v",
+                     "vp09", "vp9", "av01", "dvh1", "dvhe", "mpeg2", "h264", "h265")
+
+
+def _parse_hls_manifest(text: str) -> tuple[str, str]:
+    """Parse an HLS MASTER playlist for the best (RESOLUTION, video-codec) declared in its
+    #EXT-X-STREAM-INF variant tags. Returns ("WxH", "codec") with the MAX resolution, or
+    ("", "") if it's a media playlist / has no variant info.
+
+    This is the authoritative source for HLS video presence + resolution: many CDNs
+    (amagi, xumo, etc.) declare CODECS="avc1...,mp4a..." + RESOLUTION here even when
+    ffprobe -show_streams fails to enumerate the heavily-tokenized variant and wrongly
+    reports zero streams (which made real video look audio-only)."""
+    best_w = best_h = 0
+    codec = ""
+    for attrs in re.findall(r"#EXT-X-STREAM-INF:([^\r\n]*)", text):
+        mres = re.search(r"RESOLUTION=(\d+)x(\d+)", attrs)
+        mcod = re.search(r'CODECS="([^"]*)"', attrs)
+        has_video = bool(mres) or (mcod and any(c in mcod.group(1).lower() for c in _HLS_VIDEO_CODECS))
+        if mres:
+            w, h = int(mres.group(1)), int(mres.group(2))
+            if w * h > best_w * best_h:
+                best_w, best_h = w, h
+        if has_video and not codec:
+            if mcod:
+                first = mcod.group(1).split(",")[0].split(".")[0].lower()
+                codec = next((c for c in _HLS_VIDEO_CODECS if c in first), "h264")
+            else:
+                codec = "h264"
+    return (f"{best_w}x{best_h}" if best_w else ""), codec
+
+
+def _fetch_text(url: str, timeout: float) -> str:
+    import urllib.request
+    req = urllib.request.Request(url, headers={"User-Agent": _FFPROBE_UA})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return r.read(2_000_000).decode("utf-8", "ignore")  # cap at 2 MB
+
+
+async def _hls_manifest_probe(url: str, timeout: float) -> tuple[str, str]:
+    """Fallback video detection for HLS: fetch the manifest and read variant metadata.
+    Returns ("WxH", "codec") or ("", ""). Never raises."""
+    if ".m3u8" not in url.lower():
+        return "", ""
+    try:
+        text = await asyncio.wait_for(asyncio.to_thread(_fetch_text, url, timeout), timeout + 3)
+    except Exception:
+        return "", ""
+    return _parse_hls_manifest(text)
 
 
 async def test_stream(url: str, timeout: float = 8.0) -> StreamTestResult:
@@ -89,6 +141,22 @@ async def test_stream(url: str, timeout: float = 8.0) -> StreamTestResult:
                 codecs.bitrate = fmt["bit_rate"]
         except (json.JSONDecodeError, KeyError):
             pass
+
+        # HLS fallback: ffprobe sometimes can't enumerate a tokenized variant and reports
+        # no video at all (real video then looks audio-only). The manifest declares the
+        # truth — use it when ffprobe found no video, and to upgrade to the true max
+        # variant resolution when the manifest advertises a higher one.
+        if ".m3u8" in url.lower():
+            m_res, m_codec = await _hls_manifest_probe(url, timeout)
+            if m_res:
+                mw = int(m_res.split("x")[0])
+                cur_w = int(codecs.resolution.split("x")[0]) if "x" in codecs.resolution else 0
+                if not codecs.video or mw > cur_w:
+                    codecs.resolution = m_res
+                    if not codecs.video:
+                        codecs.video = m_codec or "h264"
+            elif m_codec and not codecs.video:
+                codecs.video = m_codec
 
         return StreamTestResult(
             url=url,
