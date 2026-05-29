@@ -129,7 +129,8 @@ async def _run(keyword: str, genre: str, logo_slug: str | None, timeout: float, 
             r = res.get(u)
             q = _quality_label({"codecs": {"resolution": r.codecs.resolution, "video": r.codecs.video}} if r else {})
             stream_entries.append({"url": u, "behaviorHints": {"notWebReady": True}, "name": q, "description": "FL"})
-        stream_entries.sort(key=lambda s: provider_rank(s.get("url", "")))
+        from harvester.regional import order_streams
+        stream_entries, _ = order_streams(stream_entries)  # regional priority + dedup
         metas.append(entry)
         META_DIR.mkdir(parents=True, exist_ok=True)
         STREAM_DIR.mkdir(parents=True, exist_ok=True)

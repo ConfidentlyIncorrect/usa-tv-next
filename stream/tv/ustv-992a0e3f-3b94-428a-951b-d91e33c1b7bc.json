@@ -1,1 +1,1 @@
-{"streams":[{"url":"http://api.toonamiaftermath.com:3000/pst/playlist.m3u8","behaviorHints":{"notWebReady":true},"name":"SD \u00b7 Api","description":"ST"},{"url":"http://api.toonamiaftermath.com:3000/est/playlist.m3u8","behaviorHints":{"notWebReady":true},"name":"SD \u00b7 Api #2","description":"ST"}]}
+{"streams":[{"url":"http://api.toonamiaftermath.com:3000/pst/playlist.m3u8","behaviorHints":{"notWebReady":true},"name":"SD \u00b7 Api","description":"ST"}]}

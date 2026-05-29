@@ -75,7 +75,8 @@ async def _run(timeout: float, concurrency: int) -> dict:
             q = _quality_label({"codecs": {"resolution": r.codecs.resolution, "video": r.codecs.video}} if r else {})
             existing.append({"url": url, "behaviorHints": {"notWebReady": True}, "name": q, "description": "FL"})
             seen.add(url)
-        existing.sort(key=lambda s: provider_rank(s.get("url", "")))
+        from harvester.regional import order_streams
+        existing, _ = order_streams(existing)  # regional priority + true-dup collapse
         (STREAM_DIR / f"{cid}.json").write_text(json.dumps({"streams": existing}, separators=(",", ":")), encoding="utf-8")
         delta = len(existing) - n0
         if delta:

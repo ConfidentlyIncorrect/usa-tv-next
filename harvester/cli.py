@@ -258,6 +258,16 @@ def logos(force):
 
 @main.command()
 @click.option("--dry-run", is_flag=True, default=False, help="Report only; do not write files.")
+def regionalize(dry_run):
+    """Order each channel's feeds by local relevance (Denver/CO > National > other); drop dup feeds."""
+    from harvester.regional import regionalize as do_regionalize
+    stats = do_regionalize(dry_run=dry_run)
+    for k, v in stats.items():
+        console.print(f"  {k}: {v}")
+
+
+@main.command()
+@click.option("--dry-run", is_flag=True, default=False, help="Report only; do not write files.")
 @click.option("--concurrency", type=int, default=DEFAULT_TEST_CONCURRENCY)
 def consolidate(dry_run, concurrency):
     """Re-probe all streams: fix Audio/video labels, drop dead, add unique provider identifiers."""
