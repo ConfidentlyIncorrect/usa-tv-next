@@ -58,6 +58,10 @@ _QUALITY_ORDER = {"FHD": 0, "HD": 1, "SD": 2, "Audio": 3}
 
 
 def _quality_of(name: str) -> str:
+    # New convention "Source (HD)" -> HD; legacy "HD · Source" -> HD.
+    m = re.search(r"\(([^)]+)\)\s*$", name or "")
+    if m and m.group(1).strip() in ("FHD", "HD", "SD", "Audio"):
+        return m.group(1).strip()
     return (name or "").strip().split(" ")[0].split("·")[0].strip() or "SD"
 
 

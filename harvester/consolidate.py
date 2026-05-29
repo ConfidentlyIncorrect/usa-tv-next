@@ -94,6 +94,48 @@ def provider_label(url: str) -> str:
     return parts[0][:10].capitalize() if parts and parts[0] else "Live"
 
 
+# Provider short-tag -> human display name (spelled out).
+_PROVIDER_PRETTY = {
+    "tvpass": "TVPass", "amagi": "Amagi", "tubi": "Tubi", "google": "Google",
+    "uplynk": "Uplynk", "bloomberg": "Bloomberg", "akamai": "Akamai",
+    "cloudfront": "CloudFront", "nbcu": "NBCU", "direct": "Direct", "live": "Live",
+}
+
+
+def prettify_source(src: str) -> str:
+    """provider_label output -> display label. 'CBSN Denver' -> 'CBSN - Denver',
+    'CBSN US' -> 'CBSN - National', 'tvpass' -> 'TVPass'."""
+    low = src.lower()
+    if low in _PROVIDER_PRETTY:
+        return _PROVIDER_PRETTY[low]
+    # "NETWORK Region" (e.g. CBSN Denver) -> "NETWORK - Region"
+    parts = src.split(" ", 1)
+    if len(parts) == 2:
+        net, region = parts[0], parts[1]
+        if region.upper() == "US":
+            region = "National"
+        return f"{net} - {region}"
+    return src
+
+
+def clean_domain(url: str) -> str:
+    """Registrable-ish domain for the small detail line (cbsn-den...cbsnews.com -> cbsnews.com)."""
+    host = (urlparse(url).hostname or "").lower().replace("www.", "")
+    if re.match(r"^\d+\.\d+\.\d+\.\d+$", host):
+        return host
+    labels = host.split(".")
+    return ".".join(labels[-2:]) if len(labels) >= 2 else host
+
+
+def build_display(quality: str, url: str) -> tuple[str, str]:
+    """Canonical stream display: (name, description).
+    name  = "{Source/Region} ({QUALITY})"   e.g. "CBSN - Denver (HD)", "TVPass (HD)"
+    description = clean source domain         e.g. "cbsnews.com", "tvpass.org"
+    """
+    name = f"{prettify_source(provider_label(url))} ({quality})"
+    return name, clean_domain(url)
+
+
 def _uniquify(names: list[str]) -> list[str]:
     """Ensure names are unique within a channel by appending #2, #3 ... to collisions."""
     seen: dict[str, int] = {}
@@ -108,15 +150,25 @@ def _uniquify(names: list[str]) -> list[str]:
     return out
 
 
+def parse_quality(name: str) -> str:
+    """Extract quality from a stream name. Handles new "Source (HD)" and legacy "HD · X"."""
+    m = re.search(r"\(([^)]+)\)\s*$", name or "")
+    if m and m.group(1).strip() in ("FHD", "HD", "SD", "Audio"):
+        return m.group(1).strip()
+    first = (name or "").split("·")[0].strip().split(" ")[0]
+    return first if first in ("FHD", "HD", "SD", "Audio") else "SD"
+
+
 def _relabel(stream: dict, res_by_url: dict) -> dict:
     url = stream["url"]
     r = res_by_url.get(url)
     res = r.codecs.resolution if r else ""
     video = r.codecs.video if r else ""
     q = quality_label(res, video)
-    name = f"{q} · {provider_label(url)}"  # "HD · tvpass"
+    name, desc = build_display(q, url)
     out = dict(stream)
     out["name"] = name
+    out["description"] = desc
     return out
 
 
@@ -198,3 +250,37 @@ async def _run(dry_run: bool, concurrency: int) -> dict:
 
 def consolidate(dry_run: bool = False, concurrency: int = DEFAULT_TEST_CONCURRENCY) -> dict:
     return asyncio.run(_run(dry_run, concurrency))
+
+
+def relabel(dry_run: bool = False) -> dict:
+    """Reformat existing stream names into the detailed convention WITHOUT re-probing.
+    Quality is taken from the current name; source/region is re-derived from the URL.
+    Then re-order with the regional resolver. Fast and network-free."""
+    from harvester.regional import order_streams
+    stats = {"files_changed": 0, "streams_relabeled": 0}
+    for f in sorted(glob.glob(os.path.join(STREAM_DIR, "*.json"))):
+        data = json.load(open(f, encoding="utf-8"))
+        streams = data.get("streams", [])
+        if not streams:
+            continue
+        before = json.dumps({"streams": streams}, separators=(",", ":"))
+        out = []
+        for s in streams:
+            q = parse_quality(s.get("name", ""))
+            name, desc = build_display(q, s.get("url", ""))
+            ns = dict(s)
+            ns["name"], ns["description"] = name, desc
+            out.append(ns)
+            stats["streams_relabeled"] += 1
+        out, _ = order_streams(out)
+        # disambiguate any identical display names left within the channel
+        names = _uniquify([s["name"] for s in out])
+        for s, nm in zip(out, names):
+            s["name"] = nm
+        after = json.dumps({"streams": out}, separators=(",", ":"))
+        if after != before:
+            stats["files_changed"] += 1
+            if not dry_run:
+                with open(f, "w", encoding="utf-8") as fh:
+                    fh.write(after)
+    return stats

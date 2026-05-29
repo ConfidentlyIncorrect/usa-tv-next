@@ -258,6 +258,16 @@ def logos(force):
 
 @main.command()
 @click.option("--dry-run", is_flag=True, default=False, help="Report only; do not write files.")
+def relabel(dry_run):
+    """Reformat stream names to the detailed convention (e.g. 'CBSN - Denver (HD)'); no re-probe."""
+    from harvester.consolidate import relabel as do_relabel
+    stats = do_relabel(dry_run=dry_run)
+    for k, v in stats.items():
+        console.print(f"  {k}: {v}")
+
+
+@main.command()
+@click.option("--dry-run", is_flag=True, default=False, help="Report only; do not write files.")
 def regionalize(dry_run):
     """Order each channel's feeds by local relevance (Denver/CO > National > other); drop dup feeds."""
     from harvester.regional import regionalize as do_regionalize
