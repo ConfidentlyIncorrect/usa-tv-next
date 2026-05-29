@@ -6,6 +6,8 @@ import re
 from pathlib import Path
 from urllib.parse import urlparse
 
+from harvester.config import is_blocked, provider_rank
+
 CATALOG_PATH = Path(__file__).resolve().parent.parent / "catalog" / "tv" / "all.json"
 META_DIR = Path(__file__).resolve().parent.parent / "meta" / "tv"
 GENRE_DIR = Path(__file__).resolve().parent.parent / "catalog" / "tv" / "all"
@@ -115,7 +117,8 @@ def _match_streams(channels: list[dict], working: list[dict], catalog_norms: set
 def inject(test_results_path: str = "data/test_results.json") -> dict:
     results_path = Path(__file__).resolve().parent.parent / test_results_path
     results = json.load(open(results_path))
-    working = [r for r in results if r["status"] == "working"]
+    # Never inject blocklisted providers (e.g. Pluto TV — no longer accessible).
+    working = [r for r in results if r["status"] == "working" and not is_blocked(r["url"])]
 
     catalog = json.load(open(CATALOG_PATH))
     channels = catalog["metas"]
@@ -143,7 +146,12 @@ def inject(test_results_path: str = "data/test_results.json") -> dict:
                 stats["streams_added"] += 1
             stats["channels_updated"] += 1
 
-        ch["streams"] = streams
+        # Drop any blocklisted streams and order so the most stable providers
+        # (tvpass.org first) lead the list shown to the client.
+        ch["streams"] = sorted(
+            (s for s in streams if not is_blocked(s.get("url", ""))),
+            key=lambda s: provider_rank(s.get("url", "")),
+        )
 
     json.dump(catalog, open(CATALOG_PATH, "w"), separators=(",", ":"))
 

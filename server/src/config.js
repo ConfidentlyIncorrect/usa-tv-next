@@ -40,6 +40,16 @@ const STREAM_URL = (id) => `${GITHUB_RAW_BASE}/stream/tv/${id}.json`;
 // XMLTV EPG source (gzipped or plain XML auto-detected by epg.js).
 const EPG_URL = process.env.EPG_URL || 'https://epg.pw/xmltv/epg_US.xml';
 
+// --- Provider policy (mirrors harvester/config.py) -------------------------
+// Streams whose URL contains a blocklisted host are never served (Pluto TV is no
+// longer accessible). Streams from priority hosts are sorted to the top of each
+// channel's list (tvpass.org is the most stable provider). Comma-separated env
+// overrides; matching is case-insensitive substring on the URL.
+const splitList = (v, def) =>
+    (v || def).split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+const STREAM_BLOCKLIST_HOSTS = splitList(process.env.STREAM_BLOCKLIST_HOSTS, 'pluto.tv');
+const STREAM_PRIORITY_HOSTS = splitList(process.env.STREAM_PRIORITY_HOSTS, 'tvpass.org');
+
 // --- Server ----------------------------------------------------------------
 
 const PORT = parseInt(process.env.PORT || '7001', 10);
@@ -86,6 +96,8 @@ const config = {
     RESPONSE_CACHE_SECS,
     FETCH_TIMEOUT_MS,
     EPG_FETCH_TIMEOUT_MS,
+    STREAM_BLOCKLIST_HOSTS,
+    STREAM_PRIORITY_HOSTS,
 };
 
 // Log the resolved configuration once at load so every container start is auditable.
@@ -99,5 +111,7 @@ log.info(`  TZ                 = ${TZ}`);
 log.info(`  DATA_REFRESH_MS    = ${DATA_REFRESH_MS} (${DATA_REFRESH_MS / 3600000}h)`);
 log.info(`  EPG_REFRESH_MS     = ${EPG_REFRESH_MS} (${EPG_REFRESH_MS / 3600000}h)`);
 log.info(`  RESPONSE_CACHE_SECS= ${RESPONSE_CACHE_SECS}`);
+log.info(`  BLOCKLIST_HOSTS    = ${STREAM_BLOCKLIST_HOSTS.join(', ') || '(none)'}`);
+log.info(`  PRIORITY_HOSTS     = ${STREAM_PRIORITY_HOSTS.join(', ') || '(none)'}`);
 
 module.exports = config;

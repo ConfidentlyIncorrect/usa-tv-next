@@ -210,6 +210,34 @@ def inject_cmd(input_file):
 
 
 @main.command()
+def clean():
+    """Remove blocklisted providers (e.g. Pluto TV) and reorder streams (tvpass first)."""
+    from harvester.clean import clean as do_clean
+    stats = do_clean()
+    console.print(
+        f"[bold]Removed[/] {stats['stream_removed']} from stream files, "
+        f"{stats['meta_removed']} from meta, {stats['catalog_removed']} from catalog"
+    )
+    console.print(
+        f"Rewrote {stats['stream_files_rewritten']} stream + "
+        f"{stats['meta_files_rewritten']} meta files (tvpass sorted first)"
+    )
+
+
+@main.command("tvpass-discover")
+@click.option("--test", is_flag=True, default=False,
+              help="Probe candidates with ffprobe and inject working tvpass links (host only).")
+@click.option("--timeout", type=float, default=DEFAULT_TIMEOUT)
+@click.option("--concurrency", type=int, default=DEFAULT_TEST_CONCURRENCY)
+def tvpass_discover(test, timeout, concurrency):
+    """Find channels missing a tvpass.org link; generate (and optionally test) candidates."""
+    from harvester.tvpass import discover
+    stats = discover(test=test, timeout=timeout, concurrency=concurrency)
+    for k, v in stats.items():
+        console.print(f"  {k}: {v}")
+
+
+@main.command()
 @click.option("--sources-file", type=click.Path(exists=True), default=str(SOURCES_FILE))
 @click.option("--filter-type", type=click.Choice(["github", "website", "telegram", "paste", "direct"]))
 @click.option("--filter-name", type=str, default=None)

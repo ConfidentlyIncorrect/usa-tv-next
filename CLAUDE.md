@@ -14,7 +14,19 @@ uv run python -m harvester test --limit 100 # Test first N streams only
 uv run python -m harvester report           # Generate report from test results
 uv run python -m harvester run              # Harvest + test + report in sequence
 uv run python -m harvester.inject           # Inject working streams into catalog channels
+uv run python -m harvester clean            # Purge blocklisted providers (Pluto) + reorder tvpass-first
+uv run python -m harvester tvpass-discover  # Generate tvpass candidates for channels missing them
+uv run python -m harvester tvpass-discover --test  # Probe candidates with ffprobe + inject working ones
 ```
+
+## Provider Policy
+
+Defined in `harvester/config.py` and mirrored in the server (`server/src/config.js`):
+
+- **Blocklist** (`BLOCKLIST_URL_SUBSTRINGS` / `STREAM_BLOCKLIST_HOSTS`, default `pluto.tv`): streams from these hosts are never injected, are purged by `clean`, and are filtered out at runtime by the server's stream handler. Pluto TV is no longer accessible.
+- **Priority** (`PROVIDER_PRIORITY` / `STREAM_PRIORITY_HOSTS`, default `tvpass.org`): streams from these hosts sort to the top of each channel's list — tvpass.org is the most stable/accessible provider. Applied by `inject`, `clean`, and the server stream handler (stable sort).
+
+`tvpass-discover` finds catalog channels with no tvpass.org stream, generates candidate `https://tvpass.org/live/<slug>/<quality>` URLs (CamelCase + East/West + kebab variants × sd/hd/fhd), and writes them to `data/tvpass_candidates.json`. With `--test` (host, needs ffprobe) it probes and injects the working ones.
 
 Run stream testing on macmini for speed: `ssh ben@macmini`. Requires `eval "$(/opt/homebrew/bin/brew shellenv zsh)"` before `uv` or `ffprobe`.
 

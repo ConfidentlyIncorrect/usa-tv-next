@@ -191,7 +191,9 @@ sources:
   # ============================================================
   - type: github
     repo: iprtl/m3u
-    paths: ["Freetv.m3u", "Pluto.m3u", "*.m3u", "*.m3u8"]
+    # Pluto.m3u dropped — Pluto TV no longer accessible (also enforced by the
+    # pluto.tv URL blocklist in harvester/config.py and the server data layer).
+    paths: ["Freetv.m3u", "*.m3u", "*.m3u8"]
     branch: live
 
   - type: github
@@ -219,11 +221,7 @@ sources:
     paths: ["*.m3u"]
     branch: main
 
-
-  - type: github
-    repo: twitchy2u/Pluto-TV-my-stuff
-    paths: ["output/plutotv_all.m3u8", "output/plutotv_us.m3u8", "output/*.m3u8"]
-    branch: main
+  # twitchy2u/Pluto-TV-my-stuff removed — Pluto TV is no longer accessible.
 
   - type: github
     repo: Addicted2u143/live-events-playlist
@@ -255,7 +253,8 @@ sources:
   # ============================================================
   - type: github
     repo: abusaeeidx/IPTV-Scraper-Zilla
-    paths: ["BD.m3u", "PlutoTV-All.m3u", "LGTV.m3u", "CricHD.m3u", "*.m3u"]
+    # PlutoTV-All.m3u dropped — Pluto TV no longer accessible.
+    paths: ["BD.m3u", "LGTV.m3u", "CricHD.m3u", "*.m3u"]
     branch: main
 
   - type: github
@@ -293,7 +292,8 @@ sources:
   # ============================================================
   # matthuisman/i.mjh.nz — repo only has EPG .xml.gz files, no M3U.
   # M3U8 playlists are served from https://i.mjh.nz/ directly
-  # (covered by the direct sources below: i-mjh-pluto-us, i-mjh-samsung-us, etc.)
+  # (covered by the i-mjh-raw-tv / i-mjh-raw-radio direct sources below).
+  # Note: Pluto TV playlists are intentionally excluded — no longer accessible.
 
   # ============================================================
   # REGIONAL COLLECTIONS
