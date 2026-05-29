@@ -13,6 +13,7 @@ const log = require('./log')('CatalogHandler');
 
 const PAGE_SIZE = 100;
 const FALLBACK_POSTER = 'https://raw.githubusercontent.com/ConfidentlyIncorrect/usa-tv-next/main/public/logo.png';
+const FALLBACK_BACKGROUND = 'https://raw.githubusercontent.com/ConfidentlyIncorrect/usa-tv-next/main/public/background.jpg';
 
 function formatTime(date) {
     if (!date) return '';
@@ -98,7 +99,7 @@ async function handleCatalog({ type, id, extra }) {
             description: buildDescription(ch),
             genres: ch.genres || [ch.genre].filter(Boolean),
             logo: ch.logo || '',
-            background: ch.poster || '',
+            background: ch.poster || ch.logo || FALLBACK_BACKGROUND,
         }));
 
         log.debug(`Returning ${metas.length} metas (skip=${skip}, total filtered=${filtered.length})`);

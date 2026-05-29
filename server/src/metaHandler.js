@@ -1,8 +1,17 @@
 // metaHandler.js — channel detail view with full EPG day schedule.
 //
-// Builds NOW PLAYING / UP NEXT / today's schedule into description (and duplicates into
-// plot + overview for client compatibility — different Stremio clients read different
-// fields). Roster comes from the shared data layer; EPG from epg.js.
+// Builds NOW PLAYING / UP NEXT / today's schedule into `description`.
+//
+// CLIENT-RENDERING NOTES (verified against client source):
+//   • Stremio: shows `meta.description` on the detail/board page.
+//   • Nuvio (Android TV + mobile): its content mapper sets the detail synopsis from
+//     `meta.description` ONLY (no fallback to plot/overview), maps `meta.background`
+//     -> banner, and applies NO `type === 'tv'` special-casing — so a channel renders
+//     through the identical path as a movie and the EPG text lands in the same place as
+//     a movie synopsis (after the channel is picked, before choosing a stream).
+//   Therefore `description` MUST carry the EPG text and MUST lead with the most useful
+//   line (NOW PLAYING), so it reads well even where the synopsis box is line-clamped.
+//   `plot`/`overview` are kept purely as belt-and-suspenders for other/older clients.
 
 const cfg = require('./config');
 const epg = require('./epg');
@@ -11,6 +20,7 @@ const channelMap = require('./channelMap');
 const log = require('./log')('MetaHandler');
 
 const FALLBACK_POSTER = 'https://raw.githubusercontent.com/ConfidentlyIncorrect/usa-tv-next/main/public/logo.png';
+const FALLBACK_BACKGROUND = 'https://raw.githubusercontent.com/ConfidentlyIncorrect/usa-tv-next/main/public/background.jpg';
 
 function formatTime(date) {
     if (!date) return '';
@@ -63,8 +73,14 @@ async function handleMeta({ type, id }) {
             if (schedule.length > 20) descLines.push(`  ... and ${schedule.length - 20} more programs`);
         }
         if (descLines.length === 0) {
-            descLines.push('No EPG guide data available for this channel.');
-            descLines.push('The channel is still playable.');
+            // Never leave the synopsis empty — an empty description can make the detail
+            // page look broken on TV clients. Show channel identity + a clear hint.
+            descLines.push(ch.name);
+            const genreLabel = (ch.genres && ch.genres[0]) || ch.genre;
+            if (genreLabel) descLines.push(`${genreLabel} • Live TV`);
+            descLines.push('');
+            descLines.push('Live channel — select a stream below to start watching.');
+            descLines.push('No program guide data is currently available for this channel.');
         }
 
         const description = descLines.join('\n');
@@ -78,8 +94,10 @@ async function handleMeta({ type, id }) {
                 poster: ch.poster || ch.logo || FALLBACK_POSTER,
                 posterShape: 'landscape',
                 logo: ch.logo || '',
-                background: ch.poster || '',
-                // Main field + compatibility duplicates (clients vary on which they read).
+                // Nuvio maps `background` -> detail-page banner; never leave it empty.
+                background: ch.poster || ch.logo || FALLBACK_BACKGROUND,
+                // `description` is the field Nuvio actually reads for the synopsis.
+                // plot/overview are duplicated only for other/older clients.
                 description,
                 plot: description,
                 overview: description,
