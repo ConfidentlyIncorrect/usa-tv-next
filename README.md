@@ -11,11 +11,17 @@ This repo ships the addon in **two modes**:
 
 ## Install (static)
 
+Streams-only addon served straight from GitHub raw — no server, no live guide. Reflects the current **173-channel** catalog with Pluto removed and tvpass-prioritized streams. For live EPG (Now Playing / schedules) use the Combined Docker server below instead.
+
+Stremio app (desktop / Android) — paste into the addon search bar, or open:
+
 ```
-stremio://raw.githubusercontent.com/yowmamasita/usa-tv-next/main/manifest.json
+stremio://raw.githubusercontent.com/ConfidentlyIncorrect/usa-tv-next/main/manifest.json
 ```
 
-[Install via Stremio Web](https://web.stremio.com/#/addons?addon=https%3A%2F%2Fraw.githubusercontent.com%2Fyowmamasita%2Fusa-tv-next%2Fmain%2Fmanifest.json)
+[Install via Stremio Web](https://web.stremio.com/#/addons?addon=https%3A%2F%2Fraw.githubusercontent.com%2FConfidentlyIncorrect%2Fusa-tv-next%2Fmain%2Fmanifest.json)
+
+> Manifest id `community.usa-tv-next` (v2.1.0). The catalog/meta/stream JSON is fetched relative to this URL, so it always serves the latest data on `main`. (The repo must stay public for raw URLs to resolve.)
 
 ## Combined Docker server (`server/`)
 
