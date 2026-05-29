@@ -93,6 +93,9 @@ async function handleMeta({ type, id }) {
                 name: ch.name,
                 poster: ch.poster || ch.logo || FALLBACK_POSTER,
                 posterShape: 'landscape',
+                // NuvioTV (verified: MetaDto.landscapePoster) prefers a dedicated
+                // landscape image for its TV-first hero/cards; our posters are landscape.
+                landscapePoster: ch.poster || ch.logo || FALLBACK_POSTER,
                 logo: ch.logo || '',
                 // Nuvio maps `background` -> detail-page banner; never leave it empty.
                 background: ch.poster || ch.logo || FALLBACK_BACKGROUND,

@@ -96,6 +96,8 @@ async function handleCatalog({ type, id, extra }) {
             name: buildCatalogName(ch),
             poster: ch.poster || ch.logo || FALLBACK_POSTER,
             posterShape: 'landscape',
+            // NuvioTV (verified: MetaPreviewDto.landscapePoster) uses this for cards.
+            landscapePoster: ch.poster || ch.logo || FALLBACK_POSTER,
             description: buildDescription(ch),
             genres: ch.genres || [ch.genre].filter(Boolean),
             logo: ch.logo || '',
