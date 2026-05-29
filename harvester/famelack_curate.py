@@ -50,18 +50,18 @@ CATEGORY_MAP = {
 
 # Criterion 2 — religious / nsfw / biased / extreme (name substrings, lowercase).
 BLOCK_RELIGIOUS = ["3abn", "abn ", "aghapy", "bible", "gospel", "faith", "church",
-                   "jesus", "christ", "god ", "islam", "quran", "hindu", "catholic",
-                   "ministr", "worship", "praise", "prophe", "kingdom", "salvation",
-                   "daystar", "ewtn", "tbn", "inspiration", "shalom", "torah"]
+                   "jesus", "christian", "islam", "quran", "hindu", "catholic",
+                   "ministr", "worship", "prophe", "salvation",
+                   "daystar", "ewtn", "tbn", "shalom", "torah"]  # 'christ' removed (Corpus Christi)
 BLOCK_NSFW = ["xxx", "adult", "playboy", "porn", "babes", "erotic", "18+"]
-BLOCK_BIASED = ["oan", "newsmax", "rt ", "russia today", "infowars", "real america",
-                "epoch", "ntd", "gb news", "press tv", "cgtn"]
+BLOCK_BIASED = ["oan", "newsmax", "russia today", "infowars", "real america",
+                "epoch", "ntd", "gb news", "press tv", "cgtn"]  # 'rt ' removed (Court TV)
 
 # Criterion 3 — extremely niche / exotic / odd (name substrings).
 BLOCK_NICHE = ["puppies", "aquarium", "fireplace", "fish tank", "webcam", "cam ",
                "test channel", "barker", "preview", "promo", "radio", "lottery",
-               "weather radar", "traffic", "court", "scanner", "slow tv", "asmr",
-               "yule log", "trivia", "horoscope"]
+               "weather radar", "traffic cam", "scanner", "slow tv", "asmr",
+               "yule log", "trivia", "horoscope"]  # 'court' removed (Court TV is legit)
 
 # Criterion 3 — single-show / clip channels (not a real network).
 BLOCK_SINGLE_SHOW = ["48 hours", "afv", "always funny", "anger management",
