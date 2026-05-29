@@ -108,6 +108,20 @@ async def test_stream(url: str, timeout: float = 8.0) -> StreamTestResult:
         elapsed_ms = int((time.monotonic() - start) * 1000)
 
         if proc.returncode != 0:
+            # ffprobe failed — but on HLS this is often a false negative: it can't decode
+            # heavily-tokenized variant URLs even when the master playlist is live and
+            # declares video (this is exactly how the player itself consumes them). Treat
+            # a fetchable manifest that advertises a video variant as WORKING.
+            m_res, m_codec = await _hls_manifest_probe(url, timeout)
+            if m_res or m_codec:
+                codecs = CodecInfo(video=(m_codec or "h264"), resolution=m_res)
+                return StreamTestResult(
+                    url=url,
+                    status=StreamStatus.WORKING,
+                    response_time_ms=elapsed_ms,
+                    codecs=codecs,
+                    tested_at=datetime.now(timezone.utc).isoformat(),
+                )
             return StreamTestResult(
                 url=url,
                 status=StreamStatus.DEAD,
