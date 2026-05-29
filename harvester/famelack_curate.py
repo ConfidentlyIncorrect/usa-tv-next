@@ -23,9 +23,17 @@ from pathlib import Path
 
 BASE = Path(__file__).resolve().parent.parent
 CATALOG = BASE / "catalog" / "tv" / "all.json"
-GENRES_FILE = BASE / "data" / "famelack_us_genres.json"  # nanoid -> [categories]
-RAW = "https://raw.githubusercontent.com/famelack/famelack-data/main/tv/compressed/countries/us.json"
+GENRES_FILE = BASE / "data" / "famelack_us_genres.json"  # cache of nanoid -> [categories]
+RAW_BASE = "https://raw.githubusercontent.com/famelack/famelack-data/main/tv/compressed"
+RAW = f"{RAW_BASE}/countries/us.json"
 _UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+
+# famelack's innate category files (its on-site genre section), joined to US channels.
+_CATEGORY_FILES = ["animation", "auto", "business", "classic", "comedy", "cooking",
+                   "culture", "documentary", "education", "entertainment", "family",
+                   "kids", "legislative", "lifestyle", "movies", "music", "news",
+                   "outdoor", "public", "relax", "religious", "science", "series",
+                   "shop", "show", "sports", "top-news", "travel", "weather"]
 
 # famelack category -> our genre (None = exclude the category entirely)
 CATEGORY_MAP = {
@@ -60,6 +68,56 @@ BLOCK_SINGLE_SHOW = ["48 hours", "afv", "always funny", "anger management",
                      "america's funniest", "unsolved", "cops", "wipeout",
                      "deal or no deal", "judge "]
 
+# ----- Web-researched explicit removals (decided via live web research, not labels) ---
+# name(lowercased) -> reason. These were individually researched.
+RESEARCHED_REMOVE = {
+    "america's voice": "biased: Real America's Voice, right-wing/pro-Trump network",
+    "one america news network": "biased: OAN, far-right, low factual, conspiracy",
+    "free speech tv": "biased: progressive advocacy network",
+    "redseat the first": "biased: The First TV, conservative commentary (O'Reilly/Loesch)",
+    "i24news english usa": "biased+foreign: Israeli, pro-government lean",
+    "bek news": "biased/extreme: ND right-wing, carries Stew Peters",
+    "bek tv sports west": "niche/operator: BEK (extreme ND operator), regional sports",
+    "impact network": "religious: gospel/faith network",
+    "dove channel": "religious: faith-based streaming (Cinedigm)",
+    "positiv tv": "religious/niche: faith-family channel",
+    "spirit tv": "religious",
+    "jewish life television": "religious/ethnic niche",
+    "logos tv kids": "religious (Logos)",
+    "logos tv salud": "religious (Logos)",
+    "roar": "niche/obscure: no verifiable presence",
+    "right now tv": "niche/obscure",
+    "camera smile tv": "niche/obscure: no verifiable presence",
+    "wox tv": "niche/obscure",
+    "dkn": "niche/obscure",
+    "merit street": "defunct: bankrupt 2025, reruns only",  # optional; recognizable but declining
+    "hmi promz news": "exotic: Haitian music promo company",
+    "6 wise tv": "obscure/niche: no verifiable presence",
+    "cafe trade tv": "obscure/niche",
+}
+
+# Public-access / government / community-media operators (researched). These are PEG
+# channels, not real networks. (Note: 'Create' and 'World Channel' are legit national
+# PBS digital nets and are intentionally NOT here.)
+PUBLIC_ACCESS = ["atxn", "bronxnet", "bx arts", "bx culture", "bx inform", "mcn6",
+                 "cmac", "midpen", "olelo", "la36", "creatv", "derrytv", "leominster tv",
+                 "natick", "nashua etv", "monroe community", "smctv", "red apple",
+                 "kcat", "uctv", "tutv"]
+
+# Structural patterns (criterion 3 — niche/exotic/odd, regional duplicates).
+# Over-the-air call-sign stations: "WFTV 9.1", "KQED 9.2", "KMBY-LD 27.5", "W14DK-D 14.2"
+_OTA_CALLSIGN = re.compile(r"^[KW][A-Z0-9]{2,4}(-[A-Z]{1,3})?\s+\d+\.\d+", re.I)
+# Public-access / local-government channels ending in a channel number.
+_LOCAL_ACCESS = re.compile(r"(channel\s*\d+|\b\d{2}\b$|\bLD\b|\bCD\b)", re.I)
+# "TVS <something> Network" — one obscure operator flooding dozens of sub-channels.
+_TVS_SPAM = re.compile(r"^TVS\b", re.I)
+
+# Exotic/foreign (non-US-mainstream) keyword fragments — Spanish stays (Latino genre).
+BLOCK_EXOTIC = ["avang", "omid e iran", "shabakeh", "iranefarda", "payvand",
+                "pers", "telugu", "hmong", "k.movies", "k-content", "mbc america",
+                "ebs musika", "ebs cinema", " tin tv", "high vision",
+                "voa tv persian", "fidele"]
+
 
 def _fold(s: str) -> str:
     return unicodedata.normalize("NFKD", s or "").encode("ascii", "ignore").decode()
@@ -89,21 +147,73 @@ def _base_name(name: str) -> str:
 
 
 def _blocked(name: str) -> str | None:
-    low = " " + name.lower() + " "
+    low_raw = name.lower().strip()
+    # 1. web-researched explicit decisions
+    if low_raw in RESEARCHED_REMOVE:
+        return f"researched: {RESEARCHED_REMOVE[low_raw]}"
+    # 2. structural patterns
+    if _OTA_CALLSIGN.match(name):
+        return "ota-callsign (local broadcast subchannel)"
+    if _TVS_SPAM.match(name):
+        return "tvs-operator-spam"
+    if _LOCAL_ACCESS.search(name):
+        return "local-access/regional"
+    if any(p in low_raw for p in PUBLIC_ACCESS):
+        return "public-access/PEG operator"
+    # 3. keyword groups
+    low = " " + low_raw + " "
     for grp, words in (("religious", BLOCK_RELIGIOUS), ("nsfw", BLOCK_NSFW),
                        ("biased", BLOCK_BIASED), ("niche", BLOCK_NICHE),
-                       ("single-show", BLOCK_SINGLE_SHOW)):
+                       ("single-show", BLOCK_SINGLE_SHOW), ("exotic-foreign", BLOCK_EXOTIC)):
         if any(w in low for w in words):
             return grp
     return None
 
 
+def _fetch_path(path: str):
+    req = urllib.request.Request(f"{RAW_BASE}/{path}", headers={"User-Agent": _UA})
+    with urllib.request.urlopen(req, timeout=40) as r:
+        raw = r.read()
+    try:
+        raw = gzip.decompress(raw)
+    except Exception:
+        pass
+    return json.loads(raw.decode("utf-8", "ignore"))
+
+
+def _build_genre_map() -> dict:
+    """nanoid -> [categories] for US channels, built from famelack's category files.
+    Self-contained (no gitignored cache needed); caches to data/ for reuse."""
+    if GENRES_FILE.exists():
+        try:
+            return json.loads(GENRES_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    nano: dict[str, list] = {}
+    for cat in _CATEGORY_FILES:
+        try:
+            for c in _fetch_path(f"categories/{cat}.json"):
+                if c.get("country") == "us" and c.get("nanoid"):
+                    nano.setdefault(c["nanoid"], [])
+                    if cat not in nano[c["nanoid"]]:
+                        nano[c["nanoid"]].append(cat)
+        except Exception:
+            continue
+    try:
+        GENRES_FILE.parent.mkdir(parents=True, exist_ok=True)
+        GENRES_FILE.write_text(json.dumps(nano), encoding="utf-8")
+    except Exception:
+        pass
+    return nano
+
+
 def curate() -> dict:
-    nano = json.loads(GENRES_FILE.read_text(encoding="utf-8"))
+    nano = _build_genre_map()
     ours = {_norm(c["name"]) for c in json.loads(CATALOG.read_text(encoding="utf-8"))["metas"]}
     us = _fetch()
 
-    rejected = defaultdict(int)
+    rejected = defaultdict(int)        # bucketed counts
+    removed_detail: list[dict] = []    # full audit trail of content-criteria removals
     seen_base: set[str] = set()
     by_genre: dict[str, list[str]] = defaultdict(list)
     candidates = []
@@ -128,11 +238,14 @@ def curate() -> dict:
             continue
         reason = _blocked(name)
         if reason:
-            rejected[reason] += 1
+            bucket = reason.split(":")[0].split(" ")[0]  # e.g. "researched", "ota-callsign"
+            rejected[bucket] += 1
+            removed_detail.append({"name": name, "reason": reason})
             continue
         base = _norm(_base_name(name))
         if base in seen_base:
             rejected["numbered_duplicate"] += 1
+            removed_detail.append({"name": name, "reason": "numbered-duplicate feed"})
             continue
         seen_base.add(base)
         genre = mapped[0]
@@ -143,6 +256,8 @@ def curate() -> dict:
 
     out = BASE / "data" / "famelack_curated.json"
     out.write_text(json.dumps(candidates, indent=1), encoding="utf-8")
+    (BASE / "data" / "famelack_removed.json").write_text(
+        json.dumps(sorted(removed_detail, key=lambda r: r["reason"]), indent=1), encoding="utf-8")
     return {"candidates": len(candidates), "by_genre": {g: len(v) for g, v in sorted(by_genre.items())},
-            "rejected": dict(rejected), "examples": {g: v[:10] for g, v in sorted(by_genre.items())},
+            "rejected": dict(rejected), "examples": {g: v[:12] for g, v in sorted(by_genre.items())},
             "report": str(out)}
