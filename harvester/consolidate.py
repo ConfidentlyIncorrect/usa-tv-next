@@ -147,12 +147,22 @@ def clean_domain(url: str) -> str:
 
 def build_display(quality: str, url: str, channel_name: str = "") -> tuple[str, str]:
     """Canonical stream display: (name, description).
-    name  = "{Region} ({QUALITY})" when a feed-variant is detected, else "{QUALITY}".
-            The provider is intentionally NOT in the name.
+    name  = "{Channel}[ - {Region}] ({QUALITY})"  — the channel name is ALWAYS included
+            (owner preference), the region is added only when a feed-variant is detected,
+            and the provider is intentionally NOT in the name.
+            e.g. "CBS (HD)", "CBS - Denver (Audio)", "Disney Channel - East (SD)".
     description = provider/supplier, spelled out (e.g. "TVPass", "CBS News").
     """
     region = detect_region(url, channel_name)
-    name = f"{region} ({quality})" if region else quality
+    ch = (channel_name or "").strip()
+    if ch and region:
+        name = f"{ch} - {region} ({quality})"
+    elif ch:
+        name = f"{ch} ({quality})"
+    elif region:
+        name = f"{region} ({quality})"
+    else:
+        name = quality
     return name, provider_name(url)
 
 

@@ -1,1 +1,1 @@
-{"streams":[{"url":"https://tvpass.org/live/VICETV/sd","behaviorHints":{"notWebReady":true},"name":"SD","description":"TVPass"},{"url":"http://23.237.104.106:8080/USA_VICETV/index.m3u8","behaviorHints":{"notWebReady":true},"name":"FHD","description":"Direct"}]}
+{"streams":[{"url":"https://tvpass.org/live/VICETV/sd","behaviorHints":{"notWebReady":true},"name":"Vice TV (SD)","description":"TVPass"},{"url":"http://23.237.104.106:8080/USA_VICETV/index.m3u8","behaviorHints":{"notWebReady":true},"name":"Vice TV (FHD)","description":"Direct"}]}

@@ -1,1 +1,1 @@
-{"streams":[{"url":"https://tvpass.org/live/MoreMaxEast/sd","behaviorHints":{"notWebReady":true},"name":"East (SD)","description":"TVPass"},{"url":"http://23.237.104.106:8080/USA_MOREMAX/index.m3u8","behaviorHints":{"notWebReady":true},"name":"FHD","description":"Direct"}]}
+{"streams":[{"url":"https://tvpass.org/live/MoreMaxEast/sd","behaviorHints":{"notWebReady":true},"name":"MoreMax - East (SD)","description":"TVPass"},{"url":"http://23.237.104.106:8080/USA_MOREMAX/index.m3u8","behaviorHints":{"notWebReady":true},"name":"MoreMax (FHD)","description":"Direct"}]}

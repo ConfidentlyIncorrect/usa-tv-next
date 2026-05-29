@@ -1,1 +1,1 @@
-{"streams":[{"url":"https://tvpass.org/live/AMCEast/sd","behaviorHints":{"notWebReady":true},"name":"East (SD)","description":"TVPass"},{"url":"https://amchls.wns.live/hls/stream.m3u8","behaviorHints":{"notWebReady":true},"name":"FHD","description":"Wns"}]}
+{"streams":[{"url":"https://tvpass.org/live/AMCEast/sd","behaviorHints":{"notWebReady":true},"name":"AMC - East (SD)","description":"TVPass"},{"url":"https://amchls.wns.live/hls/stream.m3u8","behaviorHints":{"notWebReady":true},"name":"AMC (FHD)","description":"Wns"}]}

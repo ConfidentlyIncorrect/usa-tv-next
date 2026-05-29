@@ -39,9 +39,23 @@ _OTHER_CITY = re.compile(
     r"phoenix|baltimore|minnesota|minneapolis)\b", re.I)
 
 
-def region_rank(text: str) -> int:
-    """0 = local (Denver/CO), 1 = Mountain, 2 = National, 3 = generic/none, 4 = other city."""
-    t = text or ""
+def _region_segment(name: str) -> str:
+    """Extract ONLY the explicit feed-variant from a display name of the form
+    "{Channel}[ - {Region}] ({Quality})". Returns the region text or "".
+    Reading just this segment (not the whole name) means a channel whose NAME contains
+    a city (e.g. "SportsNet New York") is never mistaken for a regional feed."""
+    base = re.sub(r"\s*\([^)]*\)\s*$", "", name or "")  # drop trailing "(Quality)"
+    if " - " in base:
+        return base.rsplit(" - ", 1)[1].strip()
+    return ""
+
+
+def region_rank(name: str) -> int:
+    """0 = local (Denver/CO), 1 = Mountain, 2 = National, 3 = generic/none, 4 = other city.
+    Operates on the explicit feed-variant segment only."""
+    t = _region_segment(name)
+    if not t:
+        return 3
     if _LOCAL.search(t):
         return 0
     if _MOUNTAIN.search(t):
@@ -52,7 +66,7 @@ def region_rank(text: str) -> int:
         return 4
     if _EAST.search(t):
         return 2  # East feed is the de-facto US national feed
-    return 3      # generic / no region marker
+    return 3
 
 
 _QUALITY_ORDER = {"FHD": 0, "HD": 1, "SD": 2, "Audio": 3}
@@ -66,22 +80,14 @@ def _quality_of(name: str) -> str:
     return (name or "").strip().split(" ")[0].split("·")[0].strip() or "SD"
 
 
-def _specific_region(text: str) -> str:
+def _specific_region(name: str) -> str:
     """The exact region token (denver/boston/chicago/...) or 'generic' — used so DISTINCT
-    regional feeds (Boston vs Chicago) are NOT treated as duplicates of each other."""
-    t = (text or "").lower()
-    if _LOCAL.search(t):
-        return "denver"
-    m = _OTHER_CITY.search(t)
-    if m:
-        return re.sub(r"\s+", "", m.group(1).lower())
-    if _MOUNTAIN.search(t):
-        return "mountain"
-    if _NATIONAL.search(t):
-        return "national"
-    if _EAST.search(t):
-        return "east"
-    return "generic"
+    regional feeds (Boston vs Chicago) are NOT treated as duplicates of each other.
+    Reads only the explicit feed-variant segment, never the channel-name prefix."""
+    seg = _region_segment(name)
+    if not seg:
+        return "generic"
+    return re.sub(r"[^a-z0-9]", "", seg.lower())
 
 
 def _domain(url: str) -> str:
