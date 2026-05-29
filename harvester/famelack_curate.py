@@ -96,6 +96,46 @@ RESEARCHED_REMOVE = {
     "cafe trade tv": "obscure/niche",
 }
 
+# ----- User-reviewed decisions (per-bullet, from the borderline report) ---------------
+USER_DECISIONS = {
+    # (1) single-show / single-IP channels — handled separately; saved for future unblock
+    **{n: "single-show (handled separately; saved for future unblock)" for n in [
+        "duck dynasty", "fear factor us", "survivor", "degrassi us", "e! keeping up",
+        "snl vault", "nbc comedy vault", "the carol burnett show", "johnny carson tv",
+        "mystery science theater 3000", "wanted: dead or alive", "the asylum us",
+        "baby shark tv", "naruto us", "tom and jerry", "yu-gi-oh!", "ryan and friends",
+        "gordon ramsay's hell's kitchen", "mad dog and merrill", "chef roc show",
+        "in the kitchen", "hungry"]},
+    # (2) exceedingly-niche (pets/hobby) — outdoors content is kept, these are not
+    **{n: "exceedingly-niche (pets/hobby; outdoors kept, this isn't)" for n in [
+        "akc tv", "akc tv meet the breeds", "love pets us", "lucky dog", "choppertown"]},
+    # (4) Latino: super-regional/localized — only well-known national Latino kept
+    **{n: "latino super-regional/localized (not a national network)" for n in [
+        "la mega mundial", "la que buena atlanta", "tropical music tv",
+        "vallenato internacional", "latin zone", "california music channel"]},
+    # (6) foreign feed of a known brand — removed; revisit later if needed
+    **{n: "foreign feed of a known brand" for n in [
+        "flowers tv usa", "history asia", "star channel international", "globalworldtv"]},
+    # (7) defunct (web-confirmed)
+    "black news channel": "defunct (confirmed: shut down 2022, merged into TheGrio)",
+    # (3) regional duplicates — keep ONE per channel (national / Denver-Mountain feed)
+    **{n: "regional duplicate (kept national CBS News 24/7 instead)" for n in [
+        "cbs news baltimore", "cbs news boston", "cbs news miami", "cbs news sacramento"]},
+    **{n: "regional duplicate (kept PBS Kids Mountain = Denver TZ instead)" for n in [
+        "pbs kids alaska", "pbs kids eastern/central", "pbs kids hawaii", "pbs kids pacific"]},
+    **{n: "hyper-local regional (no national/Denver feed)" for n in [
+        "beach tv florida & alabama", "beach tv key west & florida keys",
+        "beach tv myrtle beach & the grand strand", "beach tv panama city"]},
+    # (8) obscure — removed for now, revisit later
+    **{n: "obscure (revisit later)" for n in [
+        "amp 2", "cvc education", "channel one", "the nest", "danger tv", "hollywire",
+        "home.made.nation", "talkin live classics tv", "the archive", "turismo hd",
+        "xplore tv", "tele boston", "telemix", "nowmedia television", "stryk tv",
+        "sc currents", "weatherspy", "ftf sports", "rally tv", "swerve sports",
+        "amg tv", "ketchup tv", "skwad play", "kidsflix", "camp spoopy"]},
+}
+RESEARCHED_REMOVE.update(USER_DECISIONS)
+
 # Public-access / government / community-media operators (researched). These are PEG
 # channels, not real networks. (Note: 'Create' and 'World Channel' are legit national
 # PBS digital nets and are intentionally NOT here.)
