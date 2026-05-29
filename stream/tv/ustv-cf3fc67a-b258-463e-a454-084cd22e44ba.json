@@ -1,1 +1,1 @@
-{"streams":[{"url":"https://d3s3a5c7f101eb.cloudfront.net/playlist.m3u8","behaviorHints":{"notWebReady":true},"name":"Journy (HD)","description":"CloudFront"}]}
+{"streams":[{"url":"https://d3s3a5c7f101eb.cloudfront.net/playlist.m3u8","behaviorHints":{"notWebReady":true,"proxyHeaders":{"request":{"User-Agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36","Referer":"https://d3s3a5c7f101eb.cloudfront.net/"}}},"name":"Journy (HD)","description":"CloudFront"}]}

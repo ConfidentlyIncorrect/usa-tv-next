@@ -1,1 +1,1 @@
-{"streams":[{"url":"https://classicarts.akamaized.net/hls/live/1024257/CAS/master.m3u8","behaviorHints":{"notWebReady":true},"name":"Classic Arts Showcase (HD)","description":"Akamai"}]}
+{"streams":[{"url":"https://classicarts.akamaized.net/hls/live/1024257/CAS/master.m3u8","behaviorHints":{"notWebReady":true,"proxyHeaders":{"request":{"User-Agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36","Referer":"https://classicarts.akamaized.net/"}}},"name":"Classic Arts Showcase (HD)","description":"Akamai"}]}

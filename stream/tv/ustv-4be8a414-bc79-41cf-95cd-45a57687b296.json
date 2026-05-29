@@ -1,1 +1,1 @@
-{"streams":[{"url":"https://nbcu-telemundoflorida-firetv.amagi.tv/playlist1080.m3u8","behaviorHints":{"notWebReady":true},"name":"Telemundo (FHD)","description":"Amagi"}]}
+{"streams":[{"url":"https://nbcu-telemundoflorida-firetv.amagi.tv/playlist1080.m3u8","behaviorHints":{"notWebReady":true,"proxyHeaders":{"request":{"User-Agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36","Referer":"https://nbcu-telemundoflorida-firetv.amagi.tv/"}}},"name":"Telemundo (FHD)","description":"Amagi"}]}

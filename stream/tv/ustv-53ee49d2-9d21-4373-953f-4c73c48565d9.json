@@ -1,1 +1,1 @@
-{"streams":[{"url":"https://d3b6q2ou5kp8ke.cloudfront.net/ESPNTheOcho.m3u8","behaviorHints":{"notWebReady":true},"name":"ESPN8 The Ocho (FHD)","description":"CloudFront"}]}
+{"streams":[{"url":"https://d3b6q2ou5kp8ke.cloudfront.net/ESPNTheOcho.m3u8","behaviorHints":{"notWebReady":true,"proxyHeaders":{"request":{"User-Agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36","Referer":"https://d3b6q2ou5kp8ke.cloudfront.net/"}}},"name":"ESPN8 The Ocho (FHD)","description":"CloudFront"}]}

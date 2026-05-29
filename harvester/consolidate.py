@@ -145,6 +145,25 @@ def clean_domain(url: str) -> str:
     return ".".join(labels[-2:]) if len(labels) >= 2 else host
 
 
+_BROWSER_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+              "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+
+
+def build_behavior_hints(url: str) -> dict:
+    """behaviorHints for a stream entry. notWebReady routes to the native HLS player;
+    proxyHeaders.request supplies a browser User-Agent + a same-origin Referer, which
+    Nuvio (verified in PlayerRuntimeControllerStreams) sends on every segment request.
+    This fixes the referer/UA-gated CDNs that otherwise 403 their segments and leave the
+    player buffering forever. Same-origin Referer is the most benign value — it is what a
+    browser on the provider's own site would send, so it can't hurt streams that ignore it."""
+    p = urlparse(url or "")
+    origin = f"{p.scheme}://{p.hostname}" if p.scheme and p.hostname else ""
+    req = {"User-Agent": _BROWSER_UA}
+    if origin:
+        req["Referer"] = origin + "/"
+    return {"notWebReady": True, "proxyHeaders": {"request": req}}
+
+
 def build_display(quality: str, url: str, channel_name: str = "") -> tuple[str, str]:
     """Canonical stream display: (name, description).
     name  = "{Channel}[ - {Region}] ({QUALITY})"  — the channel name is ALWAYS included
@@ -297,10 +316,16 @@ def relabel(dry_run: bool = False) -> dict:
         before = json.dumps({"streams": streams}, separators=(",", ":"))
         out = []
         for s in streams:
+            url = s.get("url", "")
             q = parse_quality(s.get("name", ""))
-            name, desc = build_display(q, s.get("url", ""), cname)
+            name, desc = build_display(q, url, cname)
             ns = dict(s)
             ns["name"], ns["description"] = name, desc
+            # attach UA + same-origin Referer so segment requests aren't 403'd
+            bh = build_behavior_hints(url)
+            bh.update({k: v for k, v in (ns.get("behaviorHints") or {}).items()
+                       if k not in ("notWebReady", "proxyHeaders")})
+            ns["behaviorHints"] = bh
             out.append(ns)
             stats["streams_relabeled"] += 1
         # Regional ordering + true-dup collapse. Same big names from different providers

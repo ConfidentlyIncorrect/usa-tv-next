@@ -1,1 +1,1 @@
-{"streams":[{"url":"https://dz05z8iljgvbe.cloudfront.net/master.m3u8","behaviorHints":{"notWebReady":true},"name":"FilmRise Western (Audio)","description":"CloudFront"}]}
+{"streams":[{"url":"https://dz05z8iljgvbe.cloudfront.net/master.m3u8","behaviorHints":{"notWebReady":true,"proxyHeaders":{"request":{"User-Agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36","Referer":"https://dz05z8iljgvbe.cloudfront.net/"}}},"name":"FilmRise Western (Audio)","description":"CloudFront"}]}

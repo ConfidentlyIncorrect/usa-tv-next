@@ -1,1 +1,1 @@
-{"streams":[{"url":"https://dl74gpgmnb7i8.cloudfront.net/pocketwatch_GameOn.m3u8","behaviorHints":{"notWebReady":true},"name":"pocket.watch (FHD)","description":"CloudFront"}]}
+{"streams":[{"url":"https://dl74gpgmnb7i8.cloudfront.net/pocketwatch_GameOn.m3u8","behaviorHints":{"notWebReady":true,"proxyHeaders":{"request":{"User-Agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36","Referer":"https://dl74gpgmnb7i8.cloudfront.net/"}}},"name":"pocket.watch (FHD)","description":"CloudFront"}]}

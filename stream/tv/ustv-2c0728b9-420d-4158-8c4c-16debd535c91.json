@@ -1,1 +1,1 @@
-{"streams":[{"url":"https://fast-channels.sinclairstoryline.com/CHARGE/index.m3u8","behaviorHints":{"notWebReady":true},"name":"Charge! (FHD)","description":"Sinclairstoryline"}]}
+{"streams":[{"url":"https://fast-channels.sinclairstoryline.com/CHARGE/index.m3u8","behaviorHints":{"notWebReady":true,"proxyHeaders":{"request":{"User-Agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36","Referer":"https://fast-channels.sinclairstoryline.com/"}}},"name":"Charge! (FHD)","description":"Sinclairstoryline"}]}

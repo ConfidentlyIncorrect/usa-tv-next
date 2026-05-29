@@ -1,1 +1,1 @@
-{"streams":[{"url":"https://d1e9r0b71zfwk7.cloudfront.net/playlist.m3u8","behaviorHints":{"notWebReady":true},"name":"BBC Food (FHD)","description":"CloudFront"}]}
+{"streams":[{"url":"https://d1e9r0b71zfwk7.cloudfront.net/playlist.m3u8","behaviorHints":{"notWebReady":true,"proxyHeaders":{"request":{"User-Agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36","Referer":"https://d1e9r0b71zfwk7.cloudfront.net/"}}},"name":"BBC Food (FHD)","description":"CloudFront"}]}

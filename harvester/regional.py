@@ -100,6 +100,21 @@ def _domain(url: str) -> str:
     return ".".join(labels[-2:]) if len(labels) >= 2 else host
 
 
+def reliability_rank(url: str) -> int:
+    """0 = robust (clean HTTPS, standard host/port); 1 = fragile (HTTP, raw-IP host,
+    non-standard port, CORS-proxy, or URL-shortener). Fragile streams infinite-buffer or
+    get blocked far more often, so they sort BELOW robust ones — the player tries a good
+    stream first, falling back to fragile only if nothing better exists."""
+    p = urlparse(url or "")
+    host = (p.hostname or "").lower()
+    if (p.scheme == "http"
+            or re.match(r"^\d+\.\d+\.\d+\.\d+$", host)
+            or "proxy" in host or "jmp2" in host
+            or (p.port and p.port not in (80, 443))):
+        return 1
+    return 0
+
+
 def _dedup_key(stream: dict) -> tuple:
     """Identity for collapsing TRUE duplicates: provider DOMAIN + SPECIFIC region + quality.
     Region is read from the NAME (consolidate fills it there) — not the URL, whose slug may
@@ -127,10 +142,15 @@ def order_streams(streams: list[dict]) -> tuple[list[dict], int]:
     #    the URL is avoided so a channel's own city in its slug can't skew ordering.
     def sort_key(s):
         name = s.get("name", "")
+        url = s.get("url", "")
         q = _quality_of(name)
         is_audio = 1 if q == "Audio" else 0
-        return (is_audio, region_rank(name), provider_rank(s.get("url", "")),
-                _QUALITY_ORDER.get(q, 2))
+        # video first, then RELIABLE before fragile (http/ip/proxy infinite-buffer), then
+        # local region, then provider (tvpass), then quality. Reliability sits above region
+        # so a robust national feed beats a fragile local one; clean-vs-clean still honors
+        # the regional preference.
+        return (is_audio, reliability_rank(url), region_rank(name),
+                provider_rank(url), _QUALITY_ORDER.get(q, 2))
 
     deduped.sort(key=sort_key)
     return deduped, removed

@@ -1,1 +1,1 @@
-{"streams":[{"url":"https://247wlive.foxweather.com/stream/index.m3u8","behaviorHints":{"notWebReady":true},"name":"Fox Weather (HD)","description":"Foxweather"}]}
+{"streams":[{"url":"https://247wlive.foxweather.com/stream/index.m3u8","behaviorHints":{"notWebReady":true,"proxyHeaders":{"request":{"User-Agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36","Referer":"https://247wlive.foxweather.com/"}}},"name":"Fox Weather (HD)","description":"Foxweather"}]}
