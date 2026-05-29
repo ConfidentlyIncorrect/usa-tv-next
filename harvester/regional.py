@@ -20,6 +20,7 @@ import glob
 import json
 import os
 import re
+from urllib.parse import urlparse
 
 from harvester.config import provider_rank
 
@@ -83,13 +84,23 @@ def _specific_region(text: str) -> str:
     return "generic"
 
 
+def _domain(url: str) -> str:
+    """Registrable domain of a URL, used as the provider identity for dedup so DISTINCT
+    providers (amagi.tv vs google.com) are never collapsed — only same-source feeds are."""
+    host = (urlparse(url).hostname or "").lower().replace("www.", "")
+    if re.match(r"^\d+\.\d+\.\d+\.\d+$", host):
+        return host
+    labels = host.split(".")
+    return ".".join(labels[-2:]) if len(labels) >= 2 else host
+
+
 def _dedup_key(stream: dict) -> tuple:
-    """Identity for collapsing TRUE duplicates: provider + SPECIFIC region + quality.
-    Region is read from the NAME (e.g. "Audio · CBSN Denver"), which consolidate fills
-    with the feed's region — NOT the URL, whose slug may contain the channel's own city
-    (e.g. SportsNetNewYork) and cause false region matches."""
+    """Identity for collapsing TRUE duplicates: provider DOMAIN + SPECIFIC region + quality.
+    Region is read from the NAME (consolidate fills it there) — not the URL, whose slug may
+    contain the channel's own city (e.g. SportsNetNewYork) and cause false matches.
+    Domain (not provider_rank) is used so two different providers are not treated as dups."""
     name = stream.get("name", "")
-    return (provider_rank(stream.get("url", "")), _specific_region(name), _quality_of(name))
+    return (_domain(stream.get("url", "")), _specific_region(name), _quality_of(name))
 
 
 def order_streams(streams: list[dict]) -> tuple[list[dict], int]:

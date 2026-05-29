@@ -60,11 +60,15 @@ async def _run(timeout: float, concurrency: int) -> dict:
     print(f"working: {len(working)} of {len(pairs)}")
 
     # 4. inject working into the per-channel stream files
+    from harvester.consolidate import build_display
+    from harvester.regional import order_streams
+    name_by_id = {c["id"]: c.get("name", "") for c in channels}
     chans = added = 0
     for cid, rs in matches.items():
         good = [r["url"] for r in rs if r["url"] in working]
         if not good:
             continue
+        cname = name_by_id.get(cid, "")
         existing = _channel_streams(cid)
         seen = {s.get("url") for s in existing}
         n0 = len(existing)
@@ -73,9 +77,9 @@ async def _run(timeout: float, concurrency: int) -> dict:
                 continue
             r = res_by_url.get(url)
             q = _quality_label({"codecs": {"resolution": r.codecs.resolution, "video": r.codecs.video}} if r else {})
-            existing.append({"url": url, "behaviorHints": {"notWebReady": True}, "name": q, "description": "FL"})
+            name, desc = build_display(q, url, cname)  # dynamic: region (big) + provider (small)
+            existing.append({"url": url, "behaviorHints": {"notWebReady": True}, "name": name, "description": desc})
             seen.add(url)
-        from harvester.regional import order_streams
         existing, _ = order_streams(existing)  # regional priority + true-dup collapse
         (STREAM_DIR / f"{cid}.json").write_text(json.dumps({"streams": existing}, separators=(",", ":")), encoding="utf-8")
         delta = len(existing) - n0

@@ -37,15 +37,29 @@ BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STREAM_DIR = os.path.join(BASE, "stream", "tv")
 CATALOG = os.path.join(BASE, "catalog", "tv", "all.json")
 
-# US metro abbreviations seen in CBSN / regional feed slugs.
-_METRO = {
-    "bos": "Boston", "chi": "Chicago", "la": "LA", "lax": "LA", "den": "Denver",
-    "dal": "Dallas", "det": "Detroit", "nyc": "New York", "ny": "New York",
-    "sf": "Bay Area", "bay": "Bay Area", "phi": "Philadelphia", "min": "Minnesota",
-    "mia": "Miami", "atl": "Atlanta", "pit": "Pittsburgh", "sac": "Sacramento",
-    "balt": "Baltimore", "col": "Colorado",
-}
 
+def _channel_name_map() -> dict:
+    """channel id -> name, so labeling can strip the channel's own name from feed URLs."""
+    try:
+        metas = json.load(open(CATALOG, encoding="utf-8")).get("metas", [])
+        return {c["id"]: c.get("name", "") for c in metas}
+    except Exception:
+        return {}
+
+
+def _id_of(path: str) -> str:
+    return os.path.basename(path)[:-5]  # strip ".json"
+
+# ---------------------------------------------------------------------------
+# Dynamic stream labeling
+# ---------------------------------------------------------------------------
+# Two independent signals, both derived generically from the URL (no per-channel
+# hardcoding):
+#   • REGION / feed-variant  -> goes in the big `name` (what you're watching)
+#   • PROVIDER (delivery pipe)-> goes in the small `description` (who supplies it)
+# So a generic feed reads "HD" / "TVPass", and a regional feed reads "Denver (HD)" /
+# "CBS News" — never "TVPass" as the title, because the channel is what's watched,
+# TVPass is only the supplier (and several feeds may come from the same supplier).
 
 def quality_label(res: str, video: str) -> str:
     """FHD/HD/SD from resolution; Audio only when there is genuinely no video track."""
@@ -55,71 +69,75 @@ def quality_label(res: str, video: str) -> str:
             return "FHD"
         if w >= 1280:
             return "HD"
-        if w >= 640:
-            return "SD"
         return "SD"
     return "SD" if video else "Audio"
 
 
-def provider_label(url: str) -> str:
-    """Short, human provider/region label derived from the stream URL."""
-    host = (urlparse(url).hostname or "").lower()
-    path = urlparse(url).path.lower()
-    if "tvpass.org" in host:
-        return "tvpass"
-    if re.match(r"^\d+\.\d+\.\d+\.\d+$", host):
-        return "Direct"
-    # CBSN regional: cbsn-chi / cbsn-bos ...
-    m = re.search(r"cbsn-(\w+)", host) or re.search(r"cbsn-(\w+)", path)
-    if m:
-        return f"CBSN {_METRO.get(m.group(1), m.group(1).upper())}"
-    if "amagi.tv" in host:
-        return "Amagi"
-    if "tubi" in host:
-        return "Tubi"
-    if "dai.google" in host:
-        return "Google"
-    if "uplynk" in host:
-        return "Uplynk"
-    if "bloomberg" in host:
-        return "Bloomberg"
-    if "akamaized" in host or "akamai" in host:
-        return "Akamai"
-    if "cloudfront" in host:
-        return "CloudFront"
-    if "nbcuni" in host or "nbcu" in host:
-        return "NBCU"
-    # generic: second-level domain
-    parts = host.replace("www.", "").split(".")
-    return parts[0][:10].capitalize() if parts and parts[0] else "Live"
-
-
-# Provider short-tag -> human display name (spelled out).
+# Full, unambiguous region words (substring-matched after the channel name is removed).
+_REGION_WORDS = [
+    (r"castle\s*rock|castlerock", "Castle Rock"), (r"denver|colorado", "Denver"),
+    (r"national|nationwide|nationalfeed", "National"), (r"mountain", "Mountain"),
+    (r"pacific", "Pacific"), (r"central", "Central"), (r"eastern|east", "East"),
+    (r"western|west", "West"),
+    (r"boston", "Boston"), (r"chicago", "Chicago"), (r"miami", "Miami"),
+    (r"sacramento", "Sacramento"), (r"dallas", "Dallas"), (r"detroit", "Detroit"),
+    (r"atlanta", "Atlanta"), (r"pittsburgh", "Pittsburgh"), (r"seattle", "Seattle"),
+    (r"houston", "Houston"), (r"phoenix", "Phoenix"), (r"baltimore", "Baltimore"),
+    (r"philadelphia", "Philadelphia"), (r"minneapolis|minnesota", "Minnesota"),
+]
+# Metro short-codes, matched ONLY with separators (e.g. "cbsn-den") to avoid substrings.
+_METRO_CODE = {
+    "den": "Denver", "bos": "Boston", "chi": "Chicago", "lax": "LA", "dal": "Dallas",
+    "det": "Detroit", "atl": "Atlanta", "mia": "Miami", "sac": "Sacramento",
+    "phi": "Philadelphia", "pit": "Pittsburgh", "sea": "Seattle", "hou": "Houston",
+    "phx": "Phoenix", "nyc": "New York",
+}
+# Small display-polish map for provider names; ANY unknown domain falls back to a
+# title-cased label, so new providers work with no edits.
 _PROVIDER_PRETTY = {
-    "tvpass": "TVPass", "amagi": "Amagi", "tubi": "Tubi", "google": "Google",
-    "uplynk": "Uplynk", "bloomberg": "Bloomberg", "akamai": "Akamai",
-    "cloudfront": "CloudFront", "nbcu": "NBCU", "direct": "Direct", "live": "Live",
+    "tvpass": "TVPass", "cbsnews": "CBS News", "nbcuni": "NBC", "nbcsports": "NBC Sports",
+    "amagi": "Amagi", "tubi": "Tubi", "uplynk": "Uplynk", "bloomberg": "Bloomberg",
+    "akamaized": "Akamai", "cloudfront": "CloudFront", "pluto": "Pluto", "xumo": "Xumo",
+    "amagitv": "Amagi", "lura": "Lura", "streamhoster": "StreamHoster", "wurl": "Wurl",
 }
 
 
-def prettify_source(src: str) -> str:
-    """provider_label output -> display label. 'CBSN Denver' -> 'CBSN - Denver',
-    'CBSN US' -> 'CBSN - National', 'tvpass' -> 'TVPass'."""
-    low = src.lower()
-    if low in _PROVIDER_PRETTY:
-        return _PROVIDER_PRETTY[low]
-    # "NETWORK Region" (e.g. CBSN Denver) -> "NETWORK - Region"
-    parts = src.split(" ", 1)
-    if len(parts) == 2:
-        net, region = parts[0], parts[1]
-        if region.upper() == "US":
-            region = "National"
-        return f"{net} - {region}"
-    return src
+def _channel_tokens(channel_name: str) -> set:
+    return {t for t in re.findall(r"[a-z0-9]+", (channel_name or "").lower()) if len(t) >= 3}
+
+
+def detect_region(url: str, channel_name: str = "") -> str:
+    """Region / feed-variant for a stream, or '' if generic. Derived from the URL with
+    the channel's OWN name removed first, so e.g. 'SportsNetNewYork' does not falsely
+    read as a 'New York' regional feed."""
+    host = (urlparse(url).hostname or "").lower()
+    path = (urlparse(url).path or "").lower()
+    blob = f"{host} {path}"
+    for tok in _channel_tokens(channel_name):
+        blob = blob.replace(tok, " ")
+    # metro short-codes only with a separator boundary (cbsn-den, -bos.)
+    m = re.search(r"[-_./](" + "|".join(_METRO_CODE) + r")(?=[-_./]|$)", blob)
+    if m:
+        return _METRO_CODE[m.group(1)]
+    for pattern, label in _REGION_WORDS:
+        if re.search(pattern, blob):
+            return label
+    return ""
+
+
+def provider_name(url: str) -> str:
+    """Supplier label for the small line, derived dynamically from the domain.
+    Unknown domains -> title-cased second-level label (works for any new provider)."""
+    host = (urlparse(url).hostname or "").lower().replace("www.", "")
+    if not host or re.match(r"^\d+\.\d+\.\d+\.\d+$", host):
+        return "Direct"
+    labels = host.split(".")
+    sld = labels[-2] if len(labels) >= 2 else labels[0]
+    return _PROVIDER_PRETTY.get(sld, sld.capitalize())
 
 
 def clean_domain(url: str) -> str:
-    """Registrable-ish domain for the small detail line (cbsn-den...cbsnews.com -> cbsnews.com)."""
+    """Registrable-ish domain (cbsn-den...cbsnews.com -> cbsnews.com)."""
     host = (urlparse(url).hostname or "").lower().replace("www.", "")
     if re.match(r"^\d+\.\d+\.\d+\.\d+$", host):
         return host
@@ -127,13 +145,15 @@ def clean_domain(url: str) -> str:
     return ".".join(labels[-2:]) if len(labels) >= 2 else host
 
 
-def build_display(quality: str, url: str) -> tuple[str, str]:
+def build_display(quality: str, url: str, channel_name: str = "") -> tuple[str, str]:
     """Canonical stream display: (name, description).
-    name  = "{Source/Region} ({QUALITY})"   e.g. "CBSN - Denver (HD)", "TVPass (HD)"
-    description = clean source domain         e.g. "cbsnews.com", "tvpass.org"
+    name  = "{Region} ({QUALITY})" when a feed-variant is detected, else "{QUALITY}".
+            The provider is intentionally NOT in the name.
+    description = provider/supplier, spelled out (e.g. "TVPass", "CBS News").
     """
-    name = f"{prettify_source(provider_label(url))} ({quality})"
-    return name, clean_domain(url)
+    region = detect_region(url, channel_name)
+    name = f"{region} ({quality})" if region else quality
+    return name, provider_name(url)
 
 
 def _uniquify(names: list[str]) -> list[str]:
@@ -159,13 +179,13 @@ def parse_quality(name: str) -> str:
     return first if first in ("FHD", "HD", "SD", "Audio") else "SD"
 
 
-def _relabel(stream: dict, res_by_url: dict) -> dict:
+def _relabel(stream: dict, res_by_url: dict, channel_name: str = "") -> dict:
     url = stream["url"]
     r = res_by_url.get(url)
     res = r.codecs.resolution if r else ""
     video = r.codecs.video if r else ""
     q = quality_label(res, video)
-    name, desc = build_display(q, url)
+    name, desc = build_display(q, url, channel_name)
     out = dict(stream)
     out["name"] = name
     out["description"] = desc
@@ -218,26 +238,25 @@ async def _run(dry_run: bool, concurrency: int) -> dict:
     print(f"working: {len(working)} / {len(url_set)} "
           f"(throttle-safe hosts: {sum(1 for u in throttle_urls if u in working)}/{len(throttle_urls)})")
 
+    from harvester.regional import order_streams
+    names_by_id = _channel_name_map()
     stats = {"files_changed": 0, "streams_before": 0, "streams_after": 0,
              "dropped_dead": 0, "relabeled_audio_to_video": 0, "renamed": 0}
     for f, streams in per_file.items():
+        cname = names_by_id.get(_id_of(f), "")
         stats["streams_before"] += len(streams)
         before = json.dumps({"streams": streams}, separators=(",", ":"))  # snapshot pre-mutation
         kept = [dict(s) for s in streams if s["url"] in working]  # copy so we compare honestly
         stats["dropped_dead"] += len(streams) - len(kept)
         for s in kept:
             old = s.get("name", "")
-            new = _relabel(s, res_by_url)
+            new = _relabel(s, res_by_url, cname)
             if old == "Audio" and not new["name"].startswith("Audio"):
                 stats["relabeled_audio_to_video"] += 1
             if new["name"] != old:
                 stats["renamed"] += 1
             s.update(new)
-        # sort tvpass-first, then uniquify the display names
-        kept.sort(key=lambda s: provider_rank(s.get("url", "")))
-        names = _uniquify([s["name"] for s in kept])
-        for s, nm in zip(kept, names):
-            s["name"] = nm
+        kept, _ = order_streams(kept)  # regional ordering + true-dup collapse
         stats["streams_after"] += len(kept)
         after = json.dumps({"streams": kept}, separators=(",", ":"))
         if after != before:
@@ -257,26 +276,26 @@ def relabel(dry_run: bool = False) -> dict:
     Quality is taken from the current name; source/region is re-derived from the URL.
     Then re-order with the regional resolver. Fast and network-free."""
     from harvester.regional import order_streams
+    names_by_id = _channel_name_map()
     stats = {"files_changed": 0, "streams_relabeled": 0}
     for f in sorted(glob.glob(os.path.join(STREAM_DIR, "*.json"))):
         data = json.load(open(f, encoding="utf-8"))
         streams = data.get("streams", [])
         if not streams:
             continue
+        cname = names_by_id.get(_id_of(f), "")
         before = json.dumps({"streams": streams}, separators=(",", ":"))
         out = []
         for s in streams:
             q = parse_quality(s.get("name", ""))
-            name, desc = build_display(q, s.get("url", ""))
+            name, desc = build_display(q, s.get("url", ""), cname)
             ns = dict(s)
             ns["name"], ns["description"] = name, desc
             out.append(ns)
             stats["streams_relabeled"] += 1
+        # Regional ordering + true-dup collapse. Same big names from different providers
+        # are fine here — the provider in the small line disambiguates them.
         out, _ = order_streams(out)
-        # disambiguate any identical display names left within the channel
-        names = _uniquify([s["name"] for s in out])
-        for s, nm in zip(out, names):
-            s["name"] = nm
         after = json.dumps({"streams": out}, separators=(",", ":"))
         if after != before:
             stats["files_changed"] += 1

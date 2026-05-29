@@ -14,6 +14,9 @@ uv run python -m harvester test --limit 100 # Test first N streams only
 uv run python -m harvester report           # Generate report from test results
 uv run python -m harvester run              # Harvest + test + report in sequence
 uv run python -m harvester.inject           # Inject working streams into catalog channels
+uv run python -m harvester consolidate      # Re-probe all streams: fix formats, drop dead, relabel
+uv run python -m harvester relabel           # Reformat stream display names (no re-probe; dynamic)
+uv run python -m harvester regionalize       # Order each channel's feeds by local relevance + dedup
 uv run python -m harvester clean            # Purge blocklisted providers (Pluto) + reorder tvpass-first
 uv run python -m harvester tvpass-discover --probe # Scrape tvpass directory, read real slugs, inject live links
 uv run python -m harvester logos            # Grab logos from iptv-org for channels missing a local logo file

@@ -124,12 +124,14 @@ async def _run(keyword: str, genre: str, logo_slug: str | None, timeout: float, 
             "genre": genre, "logo": logo, "time": None, "type": "tv",
             "poster": poster, "genres": [genre], "streams": [],
         }
+        from harvester.consolidate import build_display
+        from harvester.regional import order_streams
         stream_entries = []
         for u in good:
             r = res.get(u)
             q = _quality_label({"codecs": {"resolution": r.codecs.resolution, "video": r.codecs.video}} if r else {})
-            stream_entries.append({"url": u, "behaviorHints": {"notWebReady": True}, "name": q, "description": "FL"})
-        from harvester.regional import order_streams
+            name, desc = build_display(q, u, c["name"])  # dynamic: region (big) + provider (small)
+            stream_entries.append({"url": u, "behaviorHints": {"notWebReady": True}, "name": name, "description": desc})
         stream_entries, _ = order_streams(stream_entries)  # regional priority + dedup
         metas.append(entry)
         META_DIR.mkdir(parents=True, exist_ok=True)
