@@ -1,0 +1,26 @@
+# Keep the build context small. The image only needs server/, catalog/, stream/.
+.git
+.gitignore
+*.md
+CLAUDE.md
+
+# Python harvester + its artifacts (not part of the runtime image)
+harvester/
+data/
+__pycache__/
+*.egg-info/
+.venv/
+pyproject.toml
+uv.lock
+sources.yaml
+
+# Large assets served directly from GitHub raw (referenced by absolute URL, not bundled)
+public/
+
+# Dynamically generated at runtime — not read by the server
+meta/
+
+# Node
+server/node_modules
+node_modules
+cache/

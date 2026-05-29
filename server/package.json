@@ -1,0 +1,17 @@
+{
+  "name": "usa-tv-next-server",
+  "version": "3.0.0",
+  "description": "USA TV Next — combined Stremio addon (catalog + EPG-enriched meta + streams) served from a single Node/Docker instance.",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js"
+  },
+  "dependencies": {
+    "fast-xml-parser": "^5.2.0",
+    "fuse.js": "^7.0.0",
+    "stremio-addon-sdk": "^1.6.10"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

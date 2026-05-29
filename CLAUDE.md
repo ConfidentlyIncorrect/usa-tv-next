@@ -1,6 +1,9 @@
 # USA TV Next
 
-Stremio addon serving free IPTV streams for US television channels. Static JSON addon — no server, just files served from GitHub raw URLs.
+Stremio addon serving free IPTV streams for US television channels. Ships in **two modes**:
+
+- **Static** — JSON files (`catalog/`, `meta/`, `stream/`, `manifest.json`) served from GitHub raw URLs. No server. Streams only.
+- **Combined server** (`server/`) — a Node/Docker addon serving `catalog` + EPG-enriched `meta` + `stream` from one always-on instance. Merges the former standalone `stremio-usatv-epg` guide addon into this repo, so a single addon owns the whole `ustv` id space (no cross-addon meta collision) and adds live Now Playing / Up Next / day schedule.
 
 ## Quick Reference
 
@@ -27,6 +30,10 @@ sources.yaml               — 167 source definitions (GitHub repos, direct URLs
 harvester/                 — Python scraping + testing + injection pipeline
 data/                      — Harvested streams, test results, state (gitignored)
 public/                    — Logo and background images
+server/                    — Combined Node/Docker addon (catalog + EPG meta + stream)
+Dockerfile                 — Node 20 image bundling server/ + catalog/ + stream/
+docker-compose.yml         — Local/host deployment (port 7001, 4 GB, cache volume)
+.github/workflows/docker.yml — CI: build + push image to ghcr.io/<owner>/usa-tv-next
 ```
 
 ## Addon Data Flow
@@ -114,6 +121,31 @@ Optimal concurrency: 50 ffprobe processes. Higher (200+) overwhelms the system a
 
 Python ≥3.10, managed with `uv`. Key deps: aiohttp, click, pydantic, pyyaml, rich. External: ffprobe (ffmpeg).
 
+## Combined Server (`server/`)
+
+Node addon (`community.usa-tv-next` v3) that owns `catalog` + `meta` + `stream` for `ustv`. Reuses the harvested static JSON as its data and overlays EPG.
+
+```
+server/src/
+  log.js          — leveled logger (LOG_LEVEL; ISO timestamps; timed() helper)
+  config.js       — all env config, logged at boot
+  data.js         — HYBRID data layer: roster + per-channel streams
+  epg.js          — XMLTV fetch/parse/now-playing + disk-cache resilience
+  channelMap.js   — fuzzy match roster->EPG (130+ overrides); roster from data.js
+  manifest.js     — combined manifest (catalog id "all"; resources catalog+meta+stream)
+  catalogHandler.js / metaHandler.js — EPG-enriched catalog + meta
+  streamHandler.js — serves streams via data.getStreams()
+  addon.js / server.js — builder wiring + startup + refresh intervals + serveHTTP
+```
+
+**Hybrid data layer (`data.js`).** Roster read precedence is **live GitHub fetch → emergency cache file → bundled local file**, so the addon survives loss of GitHub access. A `DATA_REFRESH_HOURS` interval re-fetches the roster and rewrites the emergency cache (on the `usatv-cache` volume). Per-channel stream resolution: inline roster `streams` → in-memory cache → bundled local `stream/tv/{id}.json` → lazy GitHub fetch. EPG (`epg.pw`) refreshes on `EPG_REFRESH_HOURS`; the matched-channel subset is persisted to disk for cold-start resilience.
+
+**Key env vars:** `PORT`/`HOST`, `EPG_URL`, `GITHUB_RAW_BASE`, `DATA_REFRESH_HOURS`, `EPG_REFRESH_HOURS`, `TZ`, `LOG_LEVEL` (set `debug` for per-request routing/cache/fetch logs), `NODE_OPTIONS=--max-old-space-size=3072` (needs ~4 GB for the ~188 MB EPG parse).
+
+> Data note: `catalog/tv/all.json` carries empty inline `streams` by design (Stremio fetches streams lazily per id). The server therefore resolves streams from `stream/tv/{id}.json`. Once `inject.py` populates inline `streams` in `all.json`, the roster fetch alone refreshes streams without a redeploy.
+
 ## Deployment
 
-Push to `yowmamasita/usa-tv-next` on GitHub. Stremio clients fetch catalog/meta/stream JSON via raw.githubusercontent.com URLs. No build step needed.
+**Static mode:** push to GitHub; Stremio clients fetch catalog/meta/stream JSON via raw.githubusercontent.com URLs. No build step.
+
+**Server mode:** push to `main` (touching `server/**`, `catalog/**`, `stream/**`, or `Dockerfile`) triggers `.github/workflows/docker.yml`, which builds and pushes `ghcr.io/<owner>/usa-tv-next:latest` (+ `sha-` and semver tags). Run it with `docker compose up -d --build`, or pull the published image. Install only this addon in Stremio (uninstall the static `usa-tv-next` and `stremio-usatv-epg` to avoid the shared-`ustv` meta collision). HTTPS required for Stremio Web (reverse proxy / Cloudflare Tunnel).
