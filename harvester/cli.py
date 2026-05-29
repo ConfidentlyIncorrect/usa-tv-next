@@ -211,6 +211,17 @@ def inject_cmd(input_file):
     console.print(f"Streams added: {stats['streams_added']}")
 
 
+@main.command("famelack-enrich")
+@click.option("--timeout", type=float, default=DEFAULT_TIMEOUT)
+@click.option("--concurrency", type=int, default=DEFAULT_TEST_CONCURRENCY)
+def famelack_enrich(timeout, concurrency):
+    """Add ffprobe-validated famelack streams to existing catalog channels (no new channels)."""
+    from harvester.famelack_enrich import enrich
+    stats = enrich(timeout=timeout, concurrency=concurrency)
+    for k, v in stats.items():
+        console.print(f"  {k}: {v}")
+
+
 @main.command()
 @click.option("--force", is_flag=True, default=False, help="Re-download logos even if a local file exists.")
 def logos(force):

@@ -17,6 +17,7 @@ uv run python -m harvester.inject           # Inject working streams into catalo
 uv run python -m harvester clean            # Purge blocklisted providers (Pluto) + reorder tvpass-first
 uv run python -m harvester tvpass-discover --probe # Scrape tvpass directory, read real slugs, inject live links
 uv run python -m harvester logos            # Grab logos from iptv-org for channels missing a local logo file
+uv run python -m harvester famelack-enrich  # Add ffprobe-validated famelack streams to EXISTING channels (no new channels)
 ```
 
 ## Logos / banners / subtitles
