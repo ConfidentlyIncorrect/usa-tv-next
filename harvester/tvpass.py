@@ -31,9 +31,14 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import time
+import urllib.request
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from harvester.config import DEFAULT_TEST_CONCURRENCY, DEFAULT_TIMEOUT, provider_rank
+
+_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
 
 BASE = Path(__file__).resolve().parent.parent
 CATALOG_PATH = BASE / "catalog" / "tv" / "all.json"
@@ -236,6 +241,164 @@ def _write_streams_for_channel(ch_id: str, new_urls: list[str]) -> int:
     streams.sort(key=lambda s: provider_rank(s.get("url", "")))
     sf.write_text(json.dumps({"streams": streams}, separators=(",", ":")))
     return added
+
+
+# --- HTTP discovery (lightweight — no ffprobe needed) ----------------------
+
+def _head_ok(url: str, timeout: float = 10.0) -> bool:
+    """True if the URL returns 200 with an HLS content-type (a live tvpass link)."""
+    req = urllib.request.Request(
+        url, method="HEAD",
+        headers={"User-Agent": _UA, "Referer": "https://tvpass.org/"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            ct = (r.headers.get("Content-Type") or "").lower()
+            return r.status == 200 and "mpegurl" in ct
+    except Exception:
+        return False
+
+
+def _find_slug(name: str, max_candidates: int = 24, workers: int = 16) -> str | None:
+    """Probe candidate slugs (sd) concurrently; return the first (priority-order) live one."""
+    cands = candidate_slugs(name)[:max_candidates]
+    urls = {c: TVPASS_TEMPLATE.format(slug=c, quality="sd") for c in cands}
+    ok: dict[str, bool] = {}
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        futures = {ex.submit(_head_ok, u): c for c, u in urls.items()}
+        for f in as_completed(futures):
+            ok[futures[f]] = f.result()
+    return next((c for c in cands if ok.get(c)), None)
+
+
+def discover_http(inject: bool = True) -> dict:
+    """Find live tvpass links for channels missing them via HTTP HEAD (200 + HLS),
+    then (optionally) inject them into the per-channel stream files. No ffprobe needed."""
+    missing = channels_missing_tvpass()
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    rows = ["id\tname\tslug\tqualities"]
+    found = 0
+    streams_added = 0
+    for ch in missing:
+        slug = _find_slug(ch["name"])
+        if not slug:
+            print(f"none   {ch['name']}")
+            continue
+        quals = [q for q in QUALITIES if _head_ok(TVPASS_TEMPLATE.format(slug=slug, quality=q))]
+        if not quals:
+            continue
+        found += 1
+        rows.append(f"{ch['id']}\t{ch['name']}\t{slug}\t{','.join(quals)}")
+        print(f"FOUND  {ch['name']} -> {slug} [{','.join(quals)}]")
+        if inject:
+            urls = [TVPASS_TEMPLATE.format(slug=slug, quality=q) for q in quals]
+            streams_added += _write_streams_for_channel(ch["id"], urls)
+    (DATA_DIR / "tvpass_found.tsv").write_text("\n".join(rows) + "\n")
+    return {
+        "channels_missing": len(missing),
+        "channels_found": found,
+        "streams_added": streams_added,
+        "report": str(DATA_DIR / "tvpass_found.tsv"),
+    }
+
+
+# --- directory crawl (most reliable: read the real slug off the channel page) -
+# tvpass is a JS SPA, but the homepage server-renders a directory of /channel/<slug>
+# links, and each channel page server-renders <div id="stream_name" name="<SLUG>">.
+# So: homepage -> directory; match our channel -> its /channel/ slug; fetch that page;
+# read the exact /live/ stream slug. tvpass throttles bursts (hangs after ~2 rapid
+# requests), so every request is spaced by `delay` seconds.
+_DIRECTORY_URL = "https://tvpass.org/"
+_CHANNEL_PAGE = "https://tvpass.org/channel/{slug}"
+_CHANNEL_DIR_RE = re.compile(r"/channel/([A-Za-z0-9_-]+)")
+_STREAM_NAME_RE = re.compile(r'id="stream_name"\s+name="([^"]+)"')
+_DIR_STOP = {"the", "us", "usa", "tv", "network", "channel", "eastern", "east",
+             "feed", "hd", "national", "with", "showtime", "of", "and"}
+
+
+def _http_get(url: str, timeout: float = 25.0) -> str:
+    req = urllib.request.Request(url, headers={"User-Agent": _UA, "Referer": "https://tvpass.org/"})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return r.read().decode("utf-8", "ignore")
+
+
+def fetch_directory() -> list[str]:
+    """All /channel/<slug> directory slugs from the tvpass homepage."""
+    return sorted(set(_CHANNEL_DIR_RE.findall(_http_get(_DIRECTORY_URL))))
+
+
+def _dir_tokens(s: str) -> set[str]:
+    return {t for t in re.sub(r"[^a-z0-9]+", " ", s.lower()).split() if t and t not in _DIR_STOP}
+
+
+def _match_dir(name: str, dir_slugs: list[str]) -> tuple[str | None, float]:
+    """Best directory slug for a channel name by fraction of name tokens covered."""
+    nt = _dir_tokens(name)
+    if not nt:
+        return None, 0.0
+    best, score = None, 0.0
+    for ds in dir_slugs:
+        dt = _dir_tokens(ds)
+        if dt and (nt & dt):
+            s = len(nt & dt) / len(nt)
+            if s > score:
+                best, score = ds, s
+    return best, score
+
+
+def extract_stream_slug(html: str) -> str | None:
+    m = _STREAM_NAME_RE.search(html)
+    return m.group(1).strip() if m else None
+
+
+def discover_directory(delay: float = 5.0, min_score: float = 0.99, inject: bool = True) -> dict:
+    """Find live tvpass links for missing channels by reading the real stream slug off
+    each channel's page (rate-limit friendly). Injects working links into stream files."""
+    missing = channels_missing_tvpass()
+    dir_slugs = fetch_directory()
+    print(f"tvpass directory: {len(dir_slugs)} channels", flush=True)
+    time.sleep(delay)
+    rows = ["id\tname\tdir_slug\tstream_slug\tqualities"]
+    found = 0
+    added = 0
+    for ch in missing:
+        ds, score = _match_dir(ch["name"], dir_slugs)
+        if not ds or score < min_score:
+            print(f"skip   {ch['name']} (best={ds} {score:.2f}) — not on tvpass", flush=True)
+            continue
+        try:
+            html = _http_get(_CHANNEL_PAGE.format(slug=ds))
+        except Exception as e:
+            print(f"ERR    {ch['name']} page {ds}: {e}", flush=True)
+            time.sleep(delay)
+            continue
+        time.sleep(delay)
+        slug = extract_stream_slug(html)
+        if not slug:
+            print(f"noslug {ch['name']} ({ds})", flush=True)
+            continue
+        quals = []
+        for q in QUALITIES:
+            if _head_ok(TVPASS_TEMPLATE.format(slug=slug, quality=q)):
+                quals.append(q)
+            time.sleep(delay)
+        if not quals:
+            print(f"dead   {ch['name']} -> {slug} (no live quality)", flush=True)
+            continue
+        found += 1
+        rows.append(f"{ch['id']}\t{ch['name']}\t{ds}\t{slug}\t{','.join(quals)}")
+        print(f"FOUND  {ch['name']} -> {slug} [{','.join(quals)}]", flush=True)
+        if inject:
+            urls = [TVPASS_TEMPLATE.format(slug=slug, quality=q) for q in quals]
+            added += _write_streams_for_channel(ch["id"], urls)
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    (DATA_DIR / "tvpass_found.tsv").write_text("\n".join(rows) + "\n")
+    return {
+        "channels_missing": len(missing),
+        "channels_found": found,
+        "streams_added": added,
+        "report": str(DATA_DIR / "tvpass_found.tsv"),
+    }
 
 
 # --- discovery (host only — needs ffprobe) ---------------------------------

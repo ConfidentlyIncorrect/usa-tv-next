@@ -26,7 +26,12 @@ Defined in `harvester/config.py` and mirrored in the server (`server/src/config.
 - **Blocklist** (`BLOCKLIST_URL_SUBSTRINGS` / `STREAM_BLOCKLIST_HOSTS`, default `pluto.tv`): streams from these hosts are never injected, are purged by `clean`, and are filtered out at runtime by the server's stream handler. Pluto TV is no longer accessible.
 - **Priority** (`PROVIDER_PRIORITY` / `STREAM_PRIORITY_HOSTS`, default `tvpass.org`): streams from these hosts sort to the top of each channel's list — tvpass.org is the most stable/accessible provider. Applied by `inject`, `clean`, and the server stream handler (stable sort).
 
-`tvpass-discover` finds catalog channels with no tvpass.org stream, generates candidate `https://tvpass.org/live/<slug>/<quality>` URLs, and writes them to `data/tvpass_candidates.json`. With `--test` (host, needs ffprobe) it probes and injects the working ones.
+`tvpass-discover` finds catalog channels with no tvpass.org stream. Three modes:
+- **`--probe` (recommended)** — scrapes the tvpass homepage directory of `/channel/<slug>` links, matches each missing channel by token overlap, fetches its channel page, and reads the *real* stream slug from `<div id="stream_name" name="...">`, then verifies `/live/<slug>/<q>` is `200 + application/vnd.apple.mpegurl` before injecting. tvpass throttles bursts (hangs after ~2 rapid requests), so requests are spaced by `--delay` (default 5s). No ffprobe needed. Stream slugs are NOT derivable from the channel name (`Telemundo`→`TelemundoEast` is wrong) — they must be read off the page.
+- **`--test`** — ffprobe-validates generated candidate slugs (deeper, slower).
+- default (no flag) — writes candidate URLs to `data/tvpass_candidates.json` for review.
+
+Note: many RSN/sports feeds (FanDuel etc.) return 404 when no live event is on, so re-run `--probe` periodically to catch channels while they're broadcasting.
 
 The slug generator (`harvester/tvpass.py`) is validated against `harvester/tvpass_known.json` — 131 verified `channel name → slug` mappings extracted from the tvpass links already in the addon. Those overrides reproduce **100%** of known-working slugs; the heuristic fallback (case forms, suffix add/drop, `+`→Plus, `Jr`→Junior, FanDuel full-name, East/West/HD feeds) independently reproduces ~79% of them, and is what covers channels never seen before. Regenerate the map after adding tvpass links: it's just the current name→slug pairs.
 

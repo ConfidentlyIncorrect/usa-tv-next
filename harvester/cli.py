@@ -225,14 +225,21 @@ def clean():
 
 
 @main.command("tvpass-discover")
+@click.option("--probe", is_flag=True, default=False,
+              help="Scrape the tvpass directory, read each channel's real stream slug, and inject live links (rate-limit friendly; no ffprobe).")
+@click.option("--delay", type=float, default=5.0, help="Seconds between tvpass requests (tvpass throttles bursts).")
 @click.option("--test", is_flag=True, default=False,
-              help="Probe candidates with ffprobe and inject working tvpass links (host only).")
+              help="Probe generated candidates with ffprobe and inject working tvpass links (deeper, slower).")
 @click.option("--timeout", type=float, default=DEFAULT_TIMEOUT)
 @click.option("--concurrency", type=int, default=DEFAULT_TEST_CONCURRENCY)
-def tvpass_discover(test, timeout, concurrency):
-    """Find channels missing a tvpass.org link; generate (and optionally test) candidates."""
-    from harvester.tvpass import discover
-    stats = discover(test=test, timeout=timeout, concurrency=concurrency)
+def tvpass_discover(probe, delay, test, timeout, concurrency):
+    """Find channels missing a tvpass.org link; --probe scrapes the directory for real slugs, --test ffprobes generated candidates."""
+    if probe:
+        from harvester.tvpass import discover_directory
+        stats = discover_directory(delay=delay)
+    else:
+        from harvester.tvpass import discover
+        stats = discover(test=test, timeout=timeout, concurrency=concurrency)
     for k, v in stats.items():
         console.print(f"  {k}: {v}")
 
