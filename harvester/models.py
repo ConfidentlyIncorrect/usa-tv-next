@@ -11,6 +11,7 @@ class SourceType(str, Enum):
     TELEGRAM = "telegram"
     PASTE = "paste"
     DIRECT = "direct"
+    FAMELACK = "famelack"
 
 
 class SourceConfig(BaseModel):

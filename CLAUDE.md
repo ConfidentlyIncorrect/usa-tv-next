@@ -94,6 +94,7 @@ Each channel is a Stremio meta object: `{id, name, genres, poster, posterShape, 
 | website | 30 | `sources/website.py` | HTML scraping for M3U links + Xtream Codes URLs |
 | telegram | 8 | `sources/telegram.py` | Public Telegram channel scraping |
 | paste | 1 | `sources/paste.py` | Paste site scraping |
+| famelack | 1 | `sources/famelack.py` | famelack.com's full dataset, gzipped JSON on GitHub (famelack/famelack-data); 1361 US channels with direct stream_urls + languages (incl. non-English). Drops isGeoBlocked unless `strategy: include_geoblocked` |
 
 GitHub source strategy: try literal paths first, then tree API (needs `GITHUB_TOKEN`, rate-limited at 60/hr unauthenticated), then brute-force ~55 common M3U filenames on both `main` and `master` branches.
 

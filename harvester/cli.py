@@ -21,7 +21,7 @@ console = Console()
 
 
 def _load_sources(path: Path, filter_type: str | None = None, filter_name: str | None = None) -> list[SourceConfig]:
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         data = yaml.safe_load(f)
     sources = [SourceConfig(**s) for s in data.get("sources", [])]
     if filter_type:
@@ -33,6 +33,7 @@ def _load_sources(path: Path, filter_type: str | None = None, filter_name: str |
 
 def _get_scraper(config: SourceConfig):
     from harvester.sources.direct import DirectSource
+    from harvester.sources.famelack import FamelackSource
     from harvester.sources.github import GitHubSource
     from harvester.sources.paste import PasteSource
     from harvester.sources.telegram import TelegramSource
@@ -44,6 +45,7 @@ def _get_scraper(config: SourceConfig):
         SourceType.TELEGRAM: TelegramSource,
         SourceType.PASTE: PasteSource,
         SourceType.DIRECT: DirectSource,
+        SourceType.FAMELACK: FamelackSource,
     }[config.type](config)
 
 
@@ -119,7 +121,7 @@ def main():
 
 @main.command()
 @click.option("--sources-file", type=click.Path(exists=True), default=str(SOURCES_FILE))
-@click.option("--filter-type", type=click.Choice(["github", "website", "telegram", "paste", "direct"]))
+@click.option("--filter-type", type=click.Choice(["github", "website", "telegram", "paste", "direct", "famelack"]))
 @click.option("--filter-name", type=str, default=None)
 @click.option("--concurrency", type=int, default=DEFAULT_HARVEST_CONCURRENCY)
 @click.option("--resume/--no-resume", default=True)
@@ -246,7 +248,7 @@ def tvpass_discover(probe, delay, test, timeout, concurrency):
 
 @main.command()
 @click.option("--sources-file", type=click.Path(exists=True), default=str(SOURCES_FILE))
-@click.option("--filter-type", type=click.Choice(["github", "website", "telegram", "paste", "direct"]))
+@click.option("--filter-type", type=click.Choice(["github", "website", "telegram", "paste", "direct", "famelack"]))
 @click.option("--filter-name", type=str, default=None)
 @click.option("--timeout", type=float, default=DEFAULT_TIMEOUT)
 @click.option("--harvest-concurrency", type=int, default=DEFAULT_HARVEST_CONCURRENCY)

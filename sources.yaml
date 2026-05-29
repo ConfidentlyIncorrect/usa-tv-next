@@ -1,5 +1,15 @@
 sources:
   # ============================================================
+  # FAMELACK — famelack.com publishes its full TV dataset as gzipped JSON in a
+  # public GitHub repo (famelack/famelack-data). 1361 US channels, each with
+  # direct stream_urls + languages (incl. non-English). Handled by sources/famelack.py.
+  # ============================================================
+  - type: famelack
+    name: famelack-us
+    url: https://raw.githubusercontent.com/famelack/famelack-data/main/tv/compressed/countries/us.json
+    # strategy: include_geoblocked   # uncomment to also harvest isGeoBlocked channels
+
+  # ============================================================
   # FLAGSHIP GITHUB REPOS (1K+ stars)
   # ============================================================
   # iptv-org/iptv: 430 files under streams/ — covered by direct:iptv-org-* URLs
