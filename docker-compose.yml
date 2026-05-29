@@ -15,6 +15,11 @@ services:
       - GITHUB_RAW_BASE=https://raw.githubusercontent.com/ConfidentlyIncorrect/usa-tv-next/main
       - DATA_REFRESH_HOURS=6
       - EPG_REFRESH_HOURS=6
+      # Stream proxy: set this to the addon's externally-reachable HTTPS base to make
+      # fragile feeds (plain-HTTP / raw-IP / odd-port / header-gated) play reliably —
+      # the server fetches them with proper headers and rewrites HLS so segments are
+      # proxied too. Leave blank to disable (fragile streams served direct).
+      # - PROXY_PUBLIC_URL=https://tv.example.com
       # Set to "debug" for verbose per-request routing / cache / fetch logging.
       - LOG_LEVEL=info
       - NODE_OPTIONS=--max-old-space-size=3072

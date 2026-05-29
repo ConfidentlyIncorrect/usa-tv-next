@@ -49,6 +49,7 @@ docker run -d -p 7001:7001 --memory=4g ghcr.io/confidentlyincorrect/usa-tv-next:
 | `EPG_REFRESH_HOURS` | `6` | EPG re-fetch interval |
 | `STREAM_BLOCKLIST_HOSTS` | `pluto.tv` | Stream hosts never served (comma-separated) |
 | `STREAM_PRIORITY_HOSTS` | `tvpass.org` | Stream hosts sorted to the top of each channel |
+| `PROXY_PUBLIC_URL` | _(unset)_ | Externally-reachable HTTPS base. When set, enables the stream proxy for fragile feeds |
 | `TZ` | `America/Denver` | Schedule display timezone |
 | `LOG_LEVEL` | `info` | Set `debug` for per-request routing/cache/fetch logs |
 | `NODE_OPTIONS` | `--max-old-space-size=3072` | Headroom for the ~188 MB EPG parse (needs ~4 GB) |
@@ -64,6 +65,16 @@ docker run -d -p 7001:7001 --memory=4g ghcr.io/confidentlyincorrect/usa-tv-next:
 | Catalog (genre) | `/catalog/tv/all/genre={Genre}.json` |
 | Meta | `/meta/tv/{id}.json` |
 | Stream | `/stream/tv/{id}.json` |
+
+## Stream proxy (fragile-feed reliability)
+
+Some upstream feeds are hard for a TV client to play directly — plain HTTP, raw-IP hosts, odd ports, or CDNs that 403 their HLS segments without a Referer/User-Agent (which shows up as a stream that won't load or buffers forever). Set **`PROXY_PUBLIC_URL`** to the addon's externally-reachable HTTPS base (e.g. behind a reverse proxy / Cloudflare Tunnel) and the server will:
+
+- route only the **fragile** streams through its own `/proxy/<token>` endpoint (clean HTTPS streams stay direct — no extra load);
+- fetch the upstream server-side with a browser User-Agent + same-origin Referer, follow redirects, accept any TLS cert;
+- **rewrite HLS manifests** so variant playlists, segments, keys and audio tracks are fetched back through the proxy too (otherwise the player would hit the bare segment URLs and 403).
+
+The client only ever sees a clean HTTPS URL on your own host. Leave `PROXY_PUBLIC_URL` unset to disable (fragile streams are then served directly and merely sorted last). The proxy relays video bytes, so size the host accordingly if many channels rely on it.
 
 ## Provider policy
 

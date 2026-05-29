@@ -11,6 +11,7 @@
 const cfg = require('./config');
 const data = require('./data');
 const log = require('./log')('StreamHandler');
+const proxy = require('./proxy');
 
 // --- provider policy (blocklist + priority) --------------------------------
 
@@ -19,11 +20,39 @@ function isBlocked(url) {
     return cfg.STREAM_BLOCKLIST_HOSTS.some((h) => u.includes(h));
 }
 
+// A "fragile" upstream that the native player often can't play directly (cleartext HTTP,
+// raw-IP host, odd port, an existing cors-proxy, or a URL shortener). These are the ones
+// worth routing through our own proxy. Clean HTTPS streams are left direct.
+function isFragile(url) {
+    try {
+        const u = new URL(url);
+        const host = u.hostname;
+        const port = u.port ? parseInt(u.port, 10) : (u.protocol === 'https:' ? 443 : 80);
+        return (
+            u.protocol === 'http:'
+            || /^\d+\.\d+\.\d+\.\d+$/.test(host)
+            || (port !== 80 && port !== 443)
+            || host.includes('proxy')
+            || host.includes('jmp2')
+        );
+    } catch {
+        return false;
+    }
+}
+
 function normalizeStream(s) {
     // Faithful pass-through with defensive defaults. The harvester writes entries shaped
-    // { url, behaviorHints:{notWebReady:true}, name, description }.
+    // { url, behaviorHints:{notWebReady:true, proxyHeaders}, name, description }.
     const behaviorHints = Object.assign({ notWebReady: true }, s.behaviorHints || {});
-    const out = { url: s.url, behaviorHints };
+    let url = s.url;
+    // When the proxy is enabled, route fragile upstreams through our HTTPS /proxy so the
+    // client gets a clean URL and segments are fetched server-side with proper headers.
+    if (cfg.PROXY_ENABLED && isFragile(url)) {
+        url = proxy.proxyUrl(url);
+        // The proxy already injects headers upstream; the client talks plain HTTPS to us.
+        delete behaviorHints.proxyHeaders;
+    }
+    const out = { url, behaviorHints };
     if (s.name) out.name = s.name;
     if (s.title) out.title = s.title;
     if (s.description) out.description = s.description;

@@ -8,7 +8,8 @@
 //   4. Build the ustv -> epg id map (also re-persists the EPG cache for matched channels).
 // Then schedule periodic refreshes and start the HTTP server on 0.0.0.0.
 
-const { serveHTTP } = require('stremio-addon-sdk');
+const http = require('http');
+const { getRouter } = require('stremio-addon-sdk');
 
 const cfg = require('./config');
 const log = require('./log')('Server');
@@ -16,6 +17,7 @@ const data = require('./data');
 const epg = require('./epg');
 const channelMap = require('./channelMap');
 const addonInterface = require('./addon');
+const proxy = require('./proxy');
 
 function logStatus() {
     log.info(`Status: data  = ${JSON.stringify(data.getStatus())}`);
@@ -81,9 +83,22 @@ async function main() {
         refreshEpg().catch((e) => log.error(`EPG refresh crashed: ${e.message}`));
     }, cfg.EPG_REFRESH_MS);
 
-    serveHTTP(addonInterface, { port: cfg.PORT, host: cfg.HOST });
-    log.info(`Addon running at http://${cfg.HOST}:${cfg.PORT}`);
-    log.info(`Manifest:        http://${cfg.HOST}:${cfg.PORT}/manifest.json`);
+    // Custom HTTP server: our /proxy route, everything else to the Stremio SDK router.
+    const router = getRouter(addonInterface);
+    const server = http.createServer((req, res) => {
+        if (req.url && req.url.startsWith(proxy.PREFIX)) {
+            return proxy.handle(req, res);
+        }
+        router(req, res, () => {
+            res.statusCode = 404;
+            res.end();
+        });
+    });
+    server.listen(cfg.PORT, cfg.HOST, () => {
+        log.info(`Addon running at http://${cfg.HOST}:${cfg.PORT}`);
+        log.info(`Manifest:        http://${cfg.HOST}:${cfg.PORT}/manifest.json`);
+        log.info(`Proxy:           ${cfg.PROXY_ENABLED ? cfg.PROXY_PUBLIC_URL + proxy.PREFIX + '<token>' : 'disabled'}`);
+    });
 }
 
 main().catch((err) => {

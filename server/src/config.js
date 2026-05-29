@@ -50,6 +50,19 @@ const splitList = (v, def) =>
 const STREAM_BLOCKLIST_HOSTS = splitList(process.env.STREAM_BLOCKLIST_HOSTS, 'pluto.tv');
 const STREAM_PRIORITY_HOSTS = splitList(process.env.STREAM_PRIORITY_HOSTS, 'tvpass.org');
 
+// --- Stream proxy (fixes fragile HTTP/IP/header-gated feeds) ----------------
+// When PROXY_PUBLIC_URL is set, the stream handler rewrites FRAGILE upstream URLs
+// (http / raw-IP / odd-port / cors-proxy / shortener) to go through this server's
+// /proxy route, which fetches them with proper headers over HTTPS and rewrites HLS
+// manifests so segments are proxied too. Clean HTTPS streams are left direct.
+// Set it to the addon's externally-reachable base, e.g. https://tv.example.com
+// (behind a TLS reverse proxy / Cloudflare Tunnel) or http://<lan-ip>:7001.
+const PROXY_PUBLIC_URL = (process.env.PROXY_PUBLIC_URL || '').trim();
+const PROXY_ENABLED = !!PROXY_PUBLIC_URL && process.env.PROXY_ENABLED !== '0';
+const PROXY_USER_AGENT = process.env.PROXY_USER_AGENT
+    || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+const PROXY_TIMEOUT_MS = parseInt(process.env.PROXY_TIMEOUT_MS || '20000', 10);
+
 // --- Server ----------------------------------------------------------------
 
 const PORT = parseInt(process.env.PORT || '7001', 10);
@@ -98,6 +111,10 @@ const config = {
     EPG_FETCH_TIMEOUT_MS,
     STREAM_BLOCKLIST_HOSTS,
     STREAM_PRIORITY_HOSTS,
+    PROXY_PUBLIC_URL,
+    PROXY_ENABLED,
+    PROXY_USER_AGENT,
+    PROXY_TIMEOUT_MS,
 };
 
 // Log the resolved configuration once at load so every container start is auditable.
@@ -113,5 +130,6 @@ log.info(`  EPG_REFRESH_MS     = ${EPG_REFRESH_MS} (${EPG_REFRESH_MS / 3600000}h
 log.info(`  RESPONSE_CACHE_SECS= ${RESPONSE_CACHE_SECS}`);
 log.info(`  BLOCKLIST_HOSTS    = ${STREAM_BLOCKLIST_HOSTS.join(', ') || '(none)'}`);
 log.info(`  PRIORITY_HOSTS     = ${STREAM_PRIORITY_HOSTS.join(', ') || '(none)'}`);
+log.info(`  PROXY              = ${PROXY_ENABLED ? `on -> ${PROXY_PUBLIC_URL}` : 'off (set PROXY_PUBLIC_URL to enable)'}`);
 
 module.exports = config;
