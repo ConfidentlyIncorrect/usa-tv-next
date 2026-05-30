@@ -33,6 +33,7 @@ import unicodedata
 import urllib.request
 from collections import defaultdict
 from pathlib import Path
+from urllib.parse import urlparse
 
 from harvester import consolidate as C
 from harvester import tester as T
@@ -108,10 +109,12 @@ def load_source():
             continue
         tvg = re.search(r'tvg-id="([^"]*)"', ln)
         gt = re.search(r'group-title="([^"]*)"', ln)
+        lg = re.search(r'tvg-logo="([^"]*)"', ln)
         url = next((x.strip() for x in m[i + 1:] if x.strip() and not x.startswith("#")), "")
         cid = (tvg.group(1) if tvg else "").split("@")[0]
         if url and cid and ".m3u8" in url.lower():
-            by_cid[cid].append({"url": url, "group": (gt.group(1) if gt else "")})
+            by_cid[cid].append({"url": url, "group": (gt.group(1) if gt else ""),
+                                "logo": (lg.group(1) if lg else "")})
     channels = {c["id"]: c for c in json.loads(_get(CHANNELS_URL)) if c.get("country") == "US"}
     return by_cid, channels
 
@@ -159,6 +162,14 @@ def _streams(cid: str) -> list:
 
 def _base(u: str) -> str:
     return re.sub(r"\?.*", "", u or "")
+
+
+def _load(p):
+    return json.loads(Path(p).read_text(encoding="utf-8"))
+
+
+def _dump(p, o):
+    Path(p).write_text(json.dumps(o, separators=(",", ":")), encoding="utf-8")
 
 
 def _combo(name: str) -> tuple[str, str]:
@@ -315,3 +326,154 @@ def candidates() -> None:
     print("\n=== excluded by rule (counts) ===")
     for r, n in sorted(dropped.items(), key=lambda kv: -kv[1]):
         print(f"   {n:5}  {r}")
+
+
+# --- import NEW channels -----------------------------------------------------
+
+# iptv-org group-title -> our 10 catalog genres.
+GENRE_MAP = {
+    "news": "News", "weather": "News", "business": "News",
+    "sports": "Sports",
+    "movies": "Entertainment", "series": "Entertainment", "comedy": "Entertainment",
+    "classic": "Entertainment", "entertainment": "Entertainment", "general": "Entertainment",
+    "animation": "Kids", "kids": "Kids", "family": "Kids",
+    "documentary": "Documentaries", "culture": "Documentaries", "science": "Documentaries",
+    "education": "Documentaries",
+    "music": "Music",
+    "lifestyle": "Lifestyle", "cooking": "Lifestyle", "travel": "Lifestyle",
+    "outdoor": "Lifestyle", "auto": "Lifestyle", "relax": "Lifestyle",
+}
+
+
+def _genre_for(name: str, group: str) -> str:
+    low = name.lower()
+    if "espanol" in _sa(low) or " en espanol" in _sa(low) or "telemundo" in low or "novelas" in low:
+        return "Latino"
+    for g in (group or "").split(";"):
+        if g.strip().lower() in GENRE_MAP:
+            return GENRE_MAP[g.strip().lower()]
+    return "Entertainment"
+
+
+def _master_quality(url: str) -> str:
+    """Quality from a reachable ABR master (lenient: official SSAI feeds flake under ffprobe)."""
+    o = urlparse(url); h = {"User-Agent": UA, "Referer": f"{o.scheme}://{o.hostname}/"}
+    try:
+        t = urllib.request.urlopen(urllib.request.Request(url, headers=h), timeout=10).read(8000).decode("utf-8", "ignore")
+    except Exception:
+        return ""
+    if "#EXTM3U" not in t or "EXT-X-STREAM-INF" not in t:
+        return ""
+    dims = re.findall(r"RESOLUTION=(\d+)x(\d+)", t)
+    if not dims:
+        return ""
+    best = max(dims, key=lambda d: int(d[0]) * int(d[1]))
+    return C.quality_label(f"{best[0]}x{best[1]}", "h264")
+
+
+async def _val_lenient(url: str):
+    ok, q = await _validate(url)
+    if ok:
+        return True, q
+    try:
+        res, codec, frozen = await T._hls_manifest_probe(url, 9.0)
+        if not frozen and (res or codec):
+            return True, C.quality_label(res, codec)
+    except Exception:
+        pass
+    q = await asyncio.to_thread(_master_quality, url)
+    return (bool(q), q)
+
+
+def import_candidates(names: list[str], apply: bool = False) -> None:
+    import uuid
+    by_cid, channels = load_source()
+    iptv_norm = _iptv_norm_index(channels)
+    cat = _load(CATALOG)
+    metas = cat["metas"]
+    have = set()
+    for c in metas:
+        have.add(norm(c["name"].split(" - ")[0]))
+
+    # Resolve each requested name to an iptv-org channel id (exact-ish normalized match).
+    plan = []   # (display_name, cid, [streams])
+    for nm in names:
+        ids = iptv_norm.get(norm(nm)) or iptv_norm.get(norm(nm, strip_suffix=True))
+        if not ids:
+            print(f"  ?? no iptv match: {nm}")
+            continue
+        cid = next((i for i in ids if not _is_callsign(i)), ids[0])
+        if norm(nm) in have:
+            print(f"  -- already in catalog: {nm}")
+            continue
+        streams = [s for s in by_cid.get(cid, [])
+                   if not _low_quality(s["url"]) and "pluto" not in s["url"].lower()]
+        if streams:
+            plan.append((nm, cid, streams))
+        else:
+            print(f"  ?? no usable stream: {nm}")
+
+    # Validate + pick distinct (region,quality) streams per channel.
+    allurls = list({s["url"] for _, _, ss in plan for s in ss})
+    print(f"validating {len(allurls)} streams across {len(plan)} channels ...")
+    sem = asyncio.Semaphore(6)
+    results = {}
+    async def _runval():
+        async def one(u):
+            async with sem:
+                results[u] = await _val_lenient(u)
+        await asyncio.gather(*(one(u) for u in allurls))
+    asyncio.run(_runval())
+
+    from harvester import banners as B
+    imported = []
+    new_meta = []
+    for nm, cid, streams in plan:
+        combos = set(); entries = []; logo_url = ""
+        for s in streams:
+            ok, q = results.get(s["url"], (False, ""))
+            if not ok:
+                continue
+            region = C.detect_region(s["url"], nm)
+            if (region, q) in combos:
+                continue
+            combos.add((region, q))
+            dn, desc = C.build_display(q, s["url"], nm)
+            entries.append({"url": s["url"], "behaviorHints": C.build_behavior_hints(s["url"]),
+                            "name": dn, "description": desc})
+            logo_url = logo_url or s.get("logo", "")
+        if not entries:
+            print(f"  skip (no working stream): {nm}")
+            continue
+        from harvester.regional import order_streams
+        entries, _ = order_streams(entries)
+        genre = _genre_for(nm, streams[0]["group"])
+        ncid = f"ustv-{uuid.uuid4()}"
+        slug = B.slugify(nm)
+        # art: reuse banners' logo sourcing (iptv-org/KNOWN/own) + neutral poster, else text
+        img = B.source_logo(nm, logo_url)
+        if img and not (img[1] and False):
+            B.normalize_logo(img[0]).save(B.LOGOS / f"{slug}.png")
+            B.make_poster(img[0]).save(B.POSTERS / f"{slug}.png")
+        else:
+            tp = B.make_text_poster(nm); tp.save(B.POSTERS / f"{slug}.png"); tp.save(B.LOGOS / f"{slug}.png")
+        poster = f"{B.RAW}/posters/usa/{slug}.png"; logo = f"{B.RAW}/logos/usa/{slug}.png"
+        entry = {"id": ncid, "tvgId": "", "name": nm, "country": "USA", "countryCode": "us",
+                 "genre": genre, "logo": logo, "time": None, "type": "tv",
+                 "poster": poster, "genres": [genre], "streams": []}
+        if apply:
+            (META_DIR / f"{ncid}.json").write_text(json.dumps({"meta": entry}, separators=(",", ":")), encoding="utf-8")
+            (STREAM_DIR / f"{ncid}.json").write_text(json.dumps({"streams": entries}, separators=(",", ":")), encoding="utf-8")
+            metas.append(entry); new_meta.append(entry)
+        imported.append((nm, genre, len(entries)))
+        print(f"  {'IMPORTED' if apply else 'WOULD IMPORT'} {nm:32} [{genre:13}] {len(entries)} stream(s)")
+
+    if apply and new_meta:
+        _dump(CATALOG, cat)
+        from collections import defaultdict
+        affected = {m["genre"] for m in new_meta}
+        for g in affected:
+            chs = [c for c in metas if g in (c.get("genres") or [])]
+            _dump(GENRE_DIR / f"genre={g}.json", {"metas": chs})
+    print(f"\n{'IMPORTED' if apply else 'WOULD IMPORT'} {len(imported)} channels"
+          + (f"; catalog now {len(metas)}" if apply else " (dry-run)"))

@@ -29,12 +29,17 @@ function isBlocked(url) {
 //       - *.a.run.app  -> dai.google.com (the "amd-mediator" SSAI front for CBS Sports
 //         Golazo: 302s into a fresh DAI session each request, so direct playback buffers
 //         forever; proxying pins the whole redirect+session chain to one server IP).
-//   • XUMO SSAI session: *.fast.nbcuni.com feeds play a second of black then EXIT when
-//     hit directly — proxying normalizes the manifest/session path and they play
-//     (confirmed on the Telemundo feeds; also covers Universal Crime East).
+//   • SSAI ad-stitching session: feeds that splice ads server-side mint a per-request
+//     session and play a second of black then EXIT (or buffer) when hit directly. Proxying
+//     normalizes the manifest/session path and they play. Covers:
+//       - *.fast.nbcuni.com (XUMO — confirmed on the Telemundo feeds / Universal Crime East);
+//       - *.amagi.tv        (amagi SSAI — Vevo, Court TV, Estrella, AccuWeather NOW, … 37 feeds);
+//       - *.uplynk.com      (Verizon/EdgeCast SSAI);
+//       - *.mediatailor.*   (AWS Elemental MediaTailor SSAI — Documentary+, Red Bull TV).
 // The proxy gives the player ONE stable URL and does the redirect/token/segment handling
 // from a single consistent server IP.
-const FORCE_PROXY_HOSTS = ['tvpass.org', 'thetvapp.to', 'dai.google.com', 'a.run.app', 'fast.nbcuni.com'];
+const FORCE_PROXY_HOSTS = ['tvpass.org', 'thetvapp.to', 'dai.google.com', 'a.run.app',
+    'fast.nbcuni.com', 'amagi.tv', 'uplynk.com', 'mediatailor'];
 
 // A "fragile" upstream the native player often can't play directly: cleartext HTTP,
 // raw-IP host, odd port, a cors-proxy, a URL shortener, a redirect/tokenized provider,
