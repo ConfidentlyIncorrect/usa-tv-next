@@ -28,12 +28,15 @@ function isFragile(url) {
         const u = new URL(url);
         const host = u.hostname;
         const port = u.port ? parseInt(u.port, 10) : (u.protocol === 'https:' ? 443 : 80);
+        const lo = url.toLowerCase();
         return (
             u.protocol === 'http:'
             || /^\d+\.\d+\.\d+\.\d+$/.test(host)
             || (port !== 80 && port !== 443)
             || host.includes('proxy')
             || host.includes('jmp2')
+            // operator-forced hosts (alive-but-flaky SSAI feeds, e.g. xumo/nbcuni)
+            || cfg.PROXY_FORCE_HOSTS.some((h) => lo.includes(h))
         );
     } catch {
         return false;

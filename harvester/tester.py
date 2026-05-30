@@ -64,23 +64,75 @@ def _parse_hls_manifest(text: str) -> tuple[str, str]:
     return (f"{best_w}x{best_h}" if best_w else ""), codec
 
 
-def _fetch_text(url: str, timeout: float) -> str:
+def _fetch_status_text(url: str, timeout: float):
+    """(status:int|None, text:str). HTTPError -> (code, ''); other error -> (None, '')."""
     import urllib.request
-    req = urllib.request.Request(url, headers={"User-Agent": _FFPROBE_UA})
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        return r.read(2_000_000).decode("utf-8", "ignore")  # cap at 2 MB
+    import urllib.error
+    from urllib.parse import urlparse as _u
+    o = _u(url)
+    headers = {"User-Agent": _FFPROBE_UA, "Referer": f"{o.scheme}://{o.hostname}/"}
+    req = urllib.request.Request(url, headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return r.status, r.read(2_000_000).decode("utf-8", "ignore")
+    except urllib.error.HTTPError as e:
+        return e.code, ""
+    except Exception:
+        return None, ""
+
+
+def _first_variant_uri(master_text: str, base: str) -> str | None:
+    from urllib.parse import urljoin
+    lines = master_text.splitlines()
+    for i, ln in enumerate(lines):
+        if ln.strip().startswith("#EXT-X-STREAM-INF"):
+            for nxt in lines[i + 1:]:
+                u = nxt.strip()
+                if u and not u.startswith("#"):
+                    return urljoin(base, u)
+    return None
+
+
+def _has_segments(media_text: str) -> bool:
+    return any(ln.strip() and not ln.strip().startswith("#") for ln in media_text.splitlines())
 
 
 async def _hls_manifest_probe(url: str, timeout: float) -> tuple[str, str]:
-    """Fallback video detection for HLS: fetch the manifest and read variant metadata.
-    Returns ("WxH", "codec") or ("", ""). Never raises."""
+    """Video detection for HLS that VERIFIES PLAYABILITY, not just a reachable master.
+    Returns ("WxH", "codec") only if a variant/media playlist actually LOADS — so a master
+    that returns 200 but whose variant playlists are 404 (expired tokens, e.g. some CBSN
+    feeds) is correctly reported as NOT playable, instead of buffering forever in the
+    player. Returns ("", "") otherwise. Never raises."""
     if ".m3u8" not in url.lower():
         return "", ""
     try:
-        text = await asyncio.wait_for(asyncio.to_thread(_fetch_text, url, timeout), timeout + 3)
+        status, text = await asyncio.wait_for(
+            asyncio.to_thread(_fetch_status_text, url, timeout), timeout + 3)
     except Exception:
         return "", ""
-    return _parse_hls_manifest(text)
+    if status != 200 or not text:
+        return "", ""
+
+    res, codec = _parse_hls_manifest(text)
+
+    if "#EXT-X-STREAM-INF" in text:
+        # MASTER: confirm its (first) variant playlist actually loads with segments.
+        variant = _first_variant_uri(text, url)
+        if not variant:
+            return "", ""
+        try:
+            vstatus, vtext = await asyncio.wait_for(
+                asyncio.to_thread(_fetch_status_text, variant, timeout), timeout + 3)
+        except Exception:
+            return "", ""
+        if vstatus != 200 or not _has_segments(vtext):
+            return "", ""          # variant dead/empty -> not playable
+        return res, (codec or "h264")
+
+    # MEDIA playlist served directly: playable iff it actually has segments.
+    if _has_segments(text):
+        return res, (codec or "h264")
+    return "", ""
 
 
 async def test_stream(url: str, timeout: float = 8.0) -> StreamTestResult:
@@ -156,21 +208,30 @@ async def test_stream(url: str, timeout: float = 8.0) -> StreamTestResult:
         except (json.JSONDecodeError, KeyError):
             pass
 
-        # HLS fallback: ffprobe sometimes can't enumerate a tokenized variant and reports
-        # no video at all (real video then looks audio-only). The manifest declares the
-        # truth — use it when ffprobe found no video, and to upgrade to the true max
-        # variant resolution when the manifest advertises a higher one.
+        # HLS handling. The manifest probe VERIFIES a variant/media playlist actually loads
+        # (not just that the master is reachable):
+        #   • if it confirms playable video, use/upgrade the resolution;
+        #   • if ffprobe ALSO saw no video AND the manifest isn't playable (master 200 but
+        #     variant 404 — expired-token feeds like some CBSN locals), the stream is NOT
+        #     playable and would only buffer forever in the player -> mark DEAD.
         if ".m3u8" in url.lower():
             m_res, m_codec = await _hls_manifest_probe(url, timeout)
-            if m_res:
-                mw = int(m_res.split("x")[0])
-                cur_w = int(codecs.resolution.split("x")[0]) if "x" in codecs.resolution else 0
-                if not codecs.video or mw > cur_w:
-                    codecs.resolution = m_res
-                    if not codecs.video:
-                        codecs.video = m_codec or "h264"
-            elif m_codec and not codecs.video:
-                codecs.video = m_codec
+            if m_res or m_codec:
+                if m_res:
+                    mw = int(m_res.split("x")[0])
+                    cur_w = int(codecs.resolution.split("x")[0]) if "x" in codecs.resolution else 0
+                    if not codecs.video or mw > cur_w:
+                        codecs.resolution = m_res
+                if not codecs.video:
+                    codecs.video = m_codec or "h264"
+            elif not codecs.video:
+                # No playable video from ffprobe or the manifest -> treat as dead, not audio.
+                return StreamTestResult(
+                    url=url,
+                    status=StreamStatus.DEAD,
+                    response_time_ms=elapsed_ms,
+                    tested_at=datetime.now(timezone.utc).isoformat(),
+                )
 
         return StreamTestResult(
             url=url,

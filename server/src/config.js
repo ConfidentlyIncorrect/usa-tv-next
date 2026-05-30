@@ -62,6 +62,10 @@ const STREAM_PRIORITY_HOSTS = splitList(process.env.STREAM_PRIORITY_HOSTS, 'tvpa
 // turns the proxy off entirely (fragile streams then served direct, just sorted last).
 const PROXY_PUBLIC_URL = (process.env.PROXY_PUBLIC_URL || '').trim().replace(/\/+$/, '');
 const PROXY_DISABLE = process.env.PROXY_DISABLE === '1';
+// Hosts to force through the proxy even though they look "clean" HTTPS — for feeds that
+// are alive but flaky in the player (e.g. XUMO/SSAI nbcuni "black then exit"); routing
+// them through the proxy normalizes the manifest + header path. Comma-separated substrings.
+const PROXY_FORCE_HOSTS = splitList(process.env.PROXY_FORCE_HOSTS, '');
 const PROXY_USER_AGENT = process.env.PROXY_USER_AGENT
     || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 const PROXY_TIMEOUT_MS = parseInt(process.env.PROXY_TIMEOUT_MS || '20000', 10);
@@ -116,6 +120,7 @@ const config = {
     STREAM_PRIORITY_HOSTS,
     PROXY_PUBLIC_URL,
     PROXY_DISABLE,
+    PROXY_FORCE_HOSTS,
     PROXY_USER_AGENT,
     PROXY_TIMEOUT_MS,
 };
