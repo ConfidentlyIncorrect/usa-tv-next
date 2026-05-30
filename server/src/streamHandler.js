@@ -20,13 +20,16 @@ function isBlocked(url) {
     return cfg.STREAM_BLOCKLIST_HOSTS.some((h) => u.includes(h));
 }
 
-// Providers that 302-redirect to a tokenized / IP-bound / load-balanced host (the
-// segment host + token change per request). A naive player refreshing a live playlist
-// gets a different host/token each time and 404s its segments -> infinite buffer.
-// Proxying gives the player ONE stable URL while the server handles the redirect, token
-// and segment rewriting from a single consistent IP. tvpass.org is our PRIMARY provider
-// and now uses this scheme (-> *.thetvapp.to), so it MUST be proxied to play.
-const REDIRECT_PROVIDERS = ['tvpass.org', 'thetvapp.to', 'dai.google.com'];
+// Hosts that MUST always be proxied (when the proxy is active), for two reasons:
+//   • redirect/tokenized: 302 to a tokenized/IP-bound/load-balanced host whose token
+//     expires, so a naive player's playlist refresh fails -> infinite buffer
+//     (tvpass.org -> *.thetvapp.to; dai.google.com);
+//   • XUMO SSAI session: *.fast.nbcuni.com feeds play a second of black then EXIT when
+//     hit directly — proxying normalizes the manifest/session path and they play
+//     (confirmed on the Telemundo feeds; also covers Universal Crime East).
+// The proxy gives the player ONE stable URL and does the redirect/token/segment handling
+// from a single consistent server IP.
+const FORCE_PROXY_HOSTS = ['tvpass.org', 'thetvapp.to', 'dai.google.com', 'fast.nbcuni.com'];
 
 // A "fragile" upstream the native player often can't play directly: cleartext HTTP,
 // raw-IP host, odd port, a cors-proxy, a URL shortener, a redirect/tokenized provider,
@@ -44,7 +47,7 @@ function isFragile(url) {
             || (port !== 80 && port !== 443)
             || host.includes('proxy')
             || host.includes('jmp2')
-            || REDIRECT_PROVIDERS.some((h) => host.endsWith(h) || host.includes(h))
+            || FORCE_PROXY_HOSTS.some((h) => host.endsWith(h) || host.includes(h))
             // operator-forced hosts (alive-but-flaky SSAI feeds, e.g. xumo/nbcuni)
             || cfg.PROXY_FORCE_HOSTS.some((h) => lo.includes(h))
         );
