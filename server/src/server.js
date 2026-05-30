@@ -35,12 +35,21 @@ async function initialize() {
     //    as long as a bundled local file OR an emergency cache exists.
     await data.initRoster();
 
-    // 3. Fresh EPG download + parse. On failure it retains the cache loaded in step 1.
+    // 3. Teach the EPG parser which channels matter: after it scans channel definitions it
+    //    calls this to match the roster -> EPG ids, then parses programmes for ONLY those
+    //    channels (streaming, channel-filtered -> low memory; persists the matched subset).
+    epg.setRelevantIdsProvider(() => {
+        channelMap.buildChannelMap();
+        return channelMap.matchedEpgIds();
+    });
+
+    // 4. Fresh EPG download + streaming parse. On failure it retains the cache from step 1.
     log.info('Loading EPG data (the ~188 MB feed can take up to a minute) ...');
     await epg.fetchEPG();
 
-    // 4. Map roster channels to EPG ids; persists the matched EPG subset to disk.
-    channelMap.buildChannelMap();
+    // 5. Safety net: if the download failed (fetchEPG kept the disk cache and never ran the
+    //    matcher), still build the map against the cached channel names.
+    if (channelMap.getMatchCount() === 0) channelMap.buildChannelMap();
 
     log.info('Initialization complete');
     logStatus();
@@ -54,8 +63,8 @@ async function refreshData() {
 
 async function refreshEpg() {
     log.info('Scheduled EPG refresh ...');
-    await epg.fetchEPG();
-    channelMap.buildChannelMap(); // EPG changed -> rebuild map (+ re-persist cache)
+    await epg.fetchEPG();  // re-matches (via the relevant-ids provider) + re-persists cache
+    if (channelMap.getMatchCount() === 0) channelMap.buildChannelMap();  // safety on fetch failure
     logStatus();
 }
 

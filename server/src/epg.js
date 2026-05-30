@@ -10,7 +10,6 @@
 
 const fs = require('fs');
 const path = require('path');
-const { XMLParser } = require('fast-xml-parser');
 const { gunzipSync } = require('zlib');
 
 const cfg = require('./config');
@@ -60,7 +59,113 @@ async function downloadEpg() {
     }
 }
 
-/** Fetch + parse the EPG. On failure, KEEP the existing in-memory data (never wipe). */
+// --- streaming XMLTV scanner (dependency-free, low-memory) ------------------
+// XMLTV is a flat, regular document: all <channel> elements first, then all <programme>
+// elements. We scan the raw string element-by-element with indexOf/slice instead of
+// building a full DOM (fast-xml-parser's tree for a 188 MB file is ~1 GB — the OOM that
+// crashed the periodic refresh). Only ONE element's substring is live at a time, and we
+// keep programmes ONLY for the channels the roster actually matched, so peak memory is
+// the raw string (~188 MB) + ~250 channels' schedules instead of every US channel's.
+
+const _ENT = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", '#39': "'", '#34': '"' };
+function decodeEntities(s) {
+    if (!s || s.indexOf('&') === -1) return s;
+    return s.replace(/&(#x?[0-9a-fA-F]+|[a-zA-Z]+);/g, (m, e) => {
+        if (e[0] === '#') {
+            const cp = e[1] === 'x' || e[1] === 'X'
+                ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10);
+            return Number.isFinite(cp) ? String.fromCodePoint(cp) : m;
+        }
+        return _ENT[e] !== undefined ? _ENT[e] : m;
+    });
+}
+
+function _attr(openTag, name) {
+    const m = openTag.match(new RegExp(`${name}="([^"]*)"`));
+    return m ? m[1] : '';
+}
+
+// Inner text of the FIRST <tag ...>...</tag> in block (CDATA-aware, entity-decoded).
+function _tagText(block, tag) {
+    const m = block.match(new RegExp(`<${tag}\\b[^>]*>([\\s\\S]*?)</${tag}>`));
+    if (!m) return '';
+    let inner = m[1];
+    const cdata = inner.match(/<!\[CDATA\[([\s\S]*?)\]\]>/);
+    if (cdata) inner = cdata[1];
+    return decodeEntities(inner.trim());
+}
+
+function _allTagText(block, tag) {
+    const out = [];
+    const re = new RegExp(`<${tag}\\b[^>]*>([\\s\\S]*?)</${tag}>`, 'g');
+    let m;
+    while ((m = re.exec(block)) !== null) {
+        const t = decodeEntities(m[1].trim());
+        if (t) out.push(t);
+    }
+    return out;
+}
+
+/** Scan only the <channel> definitions (the section before the first <programme>). */
+function parseChannels(xml) {
+    const out = new Map();
+    const limit = (() => { const i = xml.indexOf('<programme'); return i === -1 ? xml.length : i; })();
+    let i = xml.indexOf('<channel ');
+    while (i !== -1 && i < limit) {
+        const end = xml.indexOf('</channel>', i);
+        if (end === -1) break;
+        const block = xml.slice(i, end);
+        const open = block.slice(0, block.indexOf('>') + 1);
+        const id = _attr(open, 'id');
+        if (id) {
+            const name = _tagText(block, 'display-name');
+            const iconM = block.match(/<icon\b[^>]*\bsrc="([^"]*)"/);
+            out.set(id, { name: name, icon: iconM ? iconM[1] : '' });
+        }
+        i = xml.indexOf('<channel ', end);
+    }
+    return out;
+}
+
+/** Scan <programme> elements, keeping ONLY those whose channel is in `keep` (a Set), or
+ *  all if `keep` is null. */
+function parseProgrammes(xml, keep) {
+    const out = new Map();
+    let i = xml.indexOf('<programme ');
+    while (i !== -1) {
+        const end = xml.indexOf('</programme>', i);
+        if (end === -1) break;
+        const next = xml.indexOf('<programme ', end);
+        const open = xml.slice(i, xml.indexOf('>', i) + 1);
+        const chId = _attr(open, 'channel');
+        if (chId && (!keep || keep.has(chId))) {
+            const start = parseDateTime(_attr(open, 'start'));
+            if (start) {
+                const block = xml.slice(i, end);
+                let arr = out.get(chId);
+                if (!arr) { arr = []; out.set(chId, arr); }
+                arr.push({
+                    start,
+                    stop: parseDateTime(_attr(open, 'stop')),
+                    title: _tagText(block, 'title'),
+                    desc: _tagText(block, 'desc'),
+                    categories: _allTagText(block, 'category'),
+                    icon: (block.match(/<icon\b[^>]*\bsrc="([^"]*)"/) || ['', ''])[1],
+                });
+            }
+        }
+        i = next;
+    }
+    for (const [, progs] of out) progs.sort((a, b) => a.start - b.start);
+    return out;
+}
+
+// Caller-injected (avoids an epg<->channelMap circular import): returns the Set of EPG ids
+// the roster matched, so we parse/keep programmes for only those channels.
+let computeRelevantIds = null;
+function setRelevantIdsProvider(fn) { computeRelevantIds = fn; }
+
+/** Fetch + parse the EPG (streaming, channel-filtered). On failure KEEP existing data. */
 async function fetchEPG() {
     if (fetching) {
         log.debug('Fetch already in progress; skipping concurrent call');
@@ -69,67 +174,20 @@ async function fetchEPG() {
     fetching = true;
     log.info(`Fetching EPG data from ${cfg.EPG_URL} ...`);
     try {
-        let xmlText = await log.timed('EPG download', () => downloadEpg());
-        log.info(`Parsing XML (${(xmlText.length / 1024 / 1024).toFixed(1)} MB) ...`);
+        const xmlText = await log.timed('EPG download', () => downloadEpg());
+        log.info(`Scanning XMLTV (${(xmlText.length / 1024 / 1024).toFixed(1)} MB, streaming) ...`);
 
-        const parser = new XMLParser({
-            ignoreAttributes: false,
-            attributeNamePrefix: '@_',
-            isArray: (name) => name === 'channel' || name === 'programme' || name === 'category',
-            textNodeName: '#text',
-        });
-        const parsed = parser.parse(xmlText);
-        xmlText = null; // free the raw string before building maps to reduce peak memory
-        const tv = parsed.tv || parsed.TV;
-        if (!tv) throw new Error('No <tv> root element found');
+        // Phase 1: channel definitions (small). Swap in so the matcher sees fresh names.
+        channels = parseChannels(xmlText);
 
-        const newChannels = new Map();
-        for (const ch of (tv.channel || [])) {
-            const id = ch['@_id'];
-            const nameNode = ch['display-name'];
-            let name = '';
-            if (typeof nameNode === 'string') name = nameNode;
-            else if (nameNode && typeof nameNode === 'object') name = nameNode['#text'] || nameNode.toString();
-            const icon = ch.icon ? (ch.icon['@_src'] || '') : '';
-            newChannels.set(id, { name: String(name).trim(), icon });
-        }
-
-        const newProgrammes = new Map();
-        for (const prog of (tv.programme || [])) {
-            const chId = prog['@_channel'];
-            const start = parseDateTime(prog['@_start']);
-            const stop = parseDateTime(prog['@_stop']);
-            if (!start || !chId) continue;
-
-            let title = '';
-            const titleNode = prog.title;
-            if (typeof titleNode === 'string') title = titleNode;
-            else if (titleNode && typeof titleNode === 'object') title = titleNode['#text'] || '';
-
-            let desc = '';
-            const descNode = prog.desc;
-            if (typeof descNode === 'string') desc = descNode;
-            else if (descNode && typeof descNode === 'object') desc = descNode['#text'] || '';
-
-            let categories = [];
-            if (prog.category) {
-                const cats = Array.isArray(prog.category) ? prog.category : [prog.category];
-                categories = cats.map((c) => (typeof c === 'string' ? c : (c['#text'] || ''))).filter(Boolean);
-            }
-
-            let icon = '';
-            if (prog.icon) icon = prog.icon['@_src'] || '';
-
-            if (!newProgrammes.has(chId)) newProgrammes.set(chId, []);
-            newProgrammes.get(chId).push({ start, stop, title, desc, categories, icon });
-        }
-
-        for (const [, progs] of newProgrammes) progs.sort((a, b) => a.start - b.start);
-
-        channels = newChannels;
-        programmes = newProgrammes;
+        // Phase 2: match the roster -> the EPG ids we care about, then parse programmes for
+        // ONLY those channels (keeps the schedules map ~250 channels, not ~tens of thousands).
+        const keep = computeRelevantIds ? computeRelevantIds() : null;
+        programmes = parseProgrammes(xmlText, keep);
         lastFetch = Date.now();
-        log.info(`Loaded ${newChannels.size} channels, ${newProgrammes.size} with programmes`);
+        log.info(`Loaded ${channels.size} channels, ${programmes.size} with programmes`
+            + (keep ? ` (filtered to ${keep.size} matched)` : ''));
+        if (keep) persistCache(keep);
     } catch (err) {
         log.warn(`Fetch error: ${err.message}. Retaining ${channels.size} channels / ${programmes.size} schedules already in memory.`);
     } finally {
@@ -206,24 +264,32 @@ function loadCache() {
 
 // --- lookups ---------------------------------------------------------------
 
-function getNowPlaying(epgChannelId) {
+// offsetHours: shift "now" to align the matched EPG feed with the channel's actual stream
+// feed (e.g. a West-coast stream mapped to the East-feed guide -> offsetHours=3 looks back
+// 3h). Default 0 (East feed / live channels, where the absolute schedule already matches).
+function _now(offsetHours) {
+    const t = Date.now() - (offsetHours || 0) * 3600000;
+    return new Date(t);
+}
+
+function getNowPlaying(epgChannelId, offsetHours = 0) {
     const progs = programmes.get(epgChannelId);
     if (!progs) return null;
-    const now = new Date();
+    const now = _now(offsetHours);
     return progs.find((p) => p.start <= now && (!p.stop || p.stop > now)) || null;
 }
 
-function getUpNext(epgChannelId) {
+function getUpNext(epgChannelId, offsetHours = 0) {
     const progs = programmes.get(epgChannelId);
     if (!progs) return null;
-    const now = new Date();
+    const now = _now(offsetHours);
     return progs.find((p) => p.start > now) || null;
 }
 
-function getDaySchedule(epgChannelId) {
+function getDaySchedule(epgChannelId, offsetHours = 0) {
     const progs = programmes.get(epgChannelId);
     if (!progs) return [];
-    const now = new Date();
+    const now = _now(offsetHours);
     const endOfDay = new Date(now);
     endOfDay.setHours(23, 59, 59, 999);
     return progs.filter((p) => p.start <= endOfDay && (!p.stop || p.stop > now));
@@ -248,6 +314,7 @@ function getStatus() {
 module.exports = {
     fetchEPG,
     ensureLoaded,
+    setRelevantIdsProvider,
     getNowPlaying,
     getUpNext,
     getDaySchedule,

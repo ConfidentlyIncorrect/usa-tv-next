@@ -169,7 +169,7 @@ server/src/
   log.js          — leveled logger (LOG_LEVEL; ISO timestamps; timed() helper)
   config.js       — all env config, logged at boot
   data.js         — HYBRID data layer: roster + per-channel streams
-  epg.js          — XMLTV fetch/parse/now-playing + disk-cache resilience
+  epg.js          — XMLTV STREAMING parse (no DOM) + now-playing + disk-cache resilience
   channelMap.js   — fuzzy match roster->EPG (130+ overrides); roster from data.js
   manifest.js     — combined manifest (catalog id "all"; resources catalog+meta+stream)
   catalogHandler.js / metaHandler.js — EPG-enriched catalog + meta

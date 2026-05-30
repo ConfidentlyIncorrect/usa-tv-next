@@ -20,6 +20,16 @@ const log = require('./log')('ChannelMap');
 
 let channelMap = new Map(); // ustvId -> epgId
 
+// Per-channel EPG time offset (HOURS) — feed alignment. Our guide matches mostly EAST feeds
+// (see overrides), and most streams are East, so the default is 0 and now-playing is already
+// correct from the absolute schedule. Add an entry (USATV name lowercased -> hours) for any
+// channel whose STREAM is a different feed than the matched guide, to shift "now": e.g. a
+// West/Pacific-feed stream on an East guide -> 3. Looked up by getEPGOffset() and applied in
+// epg.getNowPlaying/getUpNext/getDaySchedule.
+const EPG_OFFSET_HOURS = {
+    // 'example west-feed channel': 3,
+};
+
 // Manual overrides: USATV name (lowercase) -> EPG display-name substring
 const MANUAL_OVERRIDES = {
     'abc': 'ABC National Feed',
@@ -200,31 +210,44 @@ function buildChannelMap() {
             const found = epgEntries.find((e) => e.nameLower.includes(target) || target.includes(e.nameLower));
             if (found) { newMap.set(ch.id, found.id); matched++; manual++; continue; }
             const fr = fuse.search(MANUAL_OVERRIDES[ustvNameLower]);
-            if (fr.length > 0 && fr[0].score < 0.4) { newMap.set(ch.id, fr[0].item.id); matched++; manual++; continue; }
+            if (fr.length > 0 && fr[0].score < 0.35) { newMap.set(ch.id, fr[0].item.id); matched++; manual++; continue; }
         }
 
         // 2. Exact match (case-insensitive)
         const exact = epgEntries.find((e) => e.nameLower === ustvNameLower);
         if (exact) { newMap.set(ch.id, exact.id); matched++; continue; }
 
-        // 3. Fuzzy match
+        // 3. Fuzzy match — stricter threshold (0.30) so a weak match doesn't bind a channel
+        //    to the WRONG guide (a wrong match is worse than no guide); near-misses are logged.
         const results = fuse.search(ustvName);
-        if (results.length > 0 && results[0].score < 0.35) {
+        if (results.length > 0 && results[0].score < 0.30) {
             newMap.set(ch.id, results[0].item.id); matched++; fuzzy++;
         } else {
             missed++;
-            log.debug(`No EPG match for "${ustvName}" (best: ${results[0]?.item?.name || 'none'} @ ${results[0]?.score?.toFixed(2) || 'N/A'})`);
+            const best = results[0];
+            if (best && best.score < 0.45) {
+                log.info(`EPG near-miss (not bound): "${ustvName}" ~ "${best.item.name}" @ ${best.score.toFixed(2)}`);
+            } else {
+                log.debug(`No EPG match for "${ustvName}" (best: ${best?.item?.name || 'none'} @ ${best?.score?.toFixed(2) || 'N/A'})`);
+            }
         }
     }
 
     channelMap = newMap;
     log.info(`Mapping complete: ${matched}/${ustvChannels.length} matched (${manual} manual, ${fuzzy} fuzzy, ${missed} missed)`);
-
-    // Persist only the EPG data we actually use, for cold-start resilience.
-    epg.persistCache(new Set(newMap.values()));
+    // NOTE: epg.persistCache() now runs inside epg.fetchEPG() AFTER programmes are parsed
+    // (programmes don't exist yet at match time in the streaming flow).
 }
 
 function getEPGChannelId(ustvId) { return channelMap.get(ustvId) || null; }
 function getMatchCount() { return channelMap.size; }
+function matchedEpgIds() { return new Set(channelMap.values()); }
 
-module.exports = { buildChannelMap, getEPGChannelId, getMatchCount };
+// Per-channel feed offset in hours, looked up by the catalog/meta handlers.
+function getEPGOffset(ustvId) {
+    const ch = data.getRoster().find((c) => c.id === ustvId);
+    const name = ch ? (ch.name || '').toLowerCase().trim() : '';
+    return EPG_OFFSET_HOURS[name] || 0;
+}
+
+module.exports = { buildChannelMap, getEPGChannelId, getMatchCount, matchedEpgIds, getEPGOffset };

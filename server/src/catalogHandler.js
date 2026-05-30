@@ -31,8 +31,9 @@ function formatTimeRange(start, stop) {
 function buildDescription(ch) {
     const epgId = channelMap.getEPGChannelId(ch.id);
     if (!epgId) return ch.name;
-    const now = epg.getNowPlaying(epgId);
-    const next = epg.getUpNext(epgId);
+    const off = channelMap.getEPGOffset(ch.id);
+    const now = epg.getNowPlaying(epgId, off);
+    const next = epg.getUpNext(epgId, off);
     const lines = [];
     if (now) {
         lines.push(`▶ NOW: ${now.title}`);
@@ -50,7 +51,7 @@ function buildDescription(ch) {
 function buildCatalogName(ch) {
     const epgId = channelMap.getEPGChannelId(ch.id);
     if (!epgId) return ch.name;
-    const now = epg.getNowPlaying(epgId);
+    const now = epg.getNowPlaying(epgId, channelMap.getEPGOffset(ch.id));
     return now ? `${ch.name} - ${now.title}` : ch.name;
 }
 

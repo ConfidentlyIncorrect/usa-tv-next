@@ -3,3 +3,6 @@ data/
 __pycache__/
 *.egg-info/
 .venv/
+
+# Server emergency cache (roster/EPG) — runtime artifact, never commit
+cache/

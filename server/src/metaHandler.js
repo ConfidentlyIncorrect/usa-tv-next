@@ -46,9 +46,10 @@ async function handleMeta({ type, id }) {
         }
 
         const epgId = channelMap.getEPGChannelId(id);
-        const now = epgId ? epg.getNowPlaying(epgId) : null;
-        const next = epgId ? epg.getUpNext(epgId) : null;
-        const schedule = epgId ? epg.getDaySchedule(epgId) : [];
+        const off = epgId ? channelMap.getEPGOffset(id) : 0;
+        const now = epgId ? epg.getNowPlaying(epgId, off) : null;
+        const next = epgId ? epg.getUpNext(epgId, off) : null;
+        const schedule = epgId ? epg.getDaySchedule(epgId, off) : [];
 
         const descLines = [];
         if (now) {
