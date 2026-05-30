@@ -90,6 +90,20 @@ async function main() {
         if (req.url && req.url.startsWith(proxy.PREFIX)) {
             return proxy.handle(req, res);
         }
+        if (req.url && req.url.split('?')[0] === '/health') {
+            res.setHeader('Content-Type', 'application/json');
+            return res.end(JSON.stringify({
+                ok: true,
+                channels: data.getStatus().channels,
+                proxy: {
+                    disabled: cfg.PROXY_DISABLE,
+                    active: proxy.proxyActive(),
+                    publicBase: proxy.publicBase() || null,
+                    source: cfg.PROXY_PUBLIC_URL ? 'PROXY_PUBLIC_URL'
+                        : proxy.publicBase() ? 'auto-detected' : 'not-yet-known',
+                },
+            }));
+        }
         router(req, res, () => {
             res.statusCode = 404;
             res.end();
@@ -98,7 +112,11 @@ async function main() {
     server.listen(cfg.PORT, cfg.HOST, () => {
         log.info(`Addon running at http://${cfg.HOST}:${cfg.PORT}`);
         log.info(`Manifest:        http://${cfg.HOST}:${cfg.PORT}/manifest.json`);
-        log.info(`Proxy:           ${cfg.PROXY_ENABLED ? cfg.PROXY_PUBLIC_URL + proxy.PREFIX + '<token>' : 'disabled'}`);
+        const proxyState = cfg.PROXY_DISABLE ? 'disabled (PROXY_DISABLE=1)'
+            : cfg.PROXY_PUBLIC_URL ? `on -> ${cfg.PROXY_PUBLIC_URL}`
+            : 'auto — activates on the first request via your public URL (set PROXY_PUBLIC_URL to force on now)';
+        log.info(`Proxy:           ${proxyState}`);
+        log.info(`Health:          http://${cfg.HOST}:${cfg.PORT}/health`);
     });
 }
 

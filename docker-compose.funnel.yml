@@ -51,7 +51,12 @@ services:
       - GITHUB_RAW_BASE=https://raw.githubusercontent.com/ConfidentlyIncorrect/usa-tv-next/main
       - LOG_LEVEL=info
       - NODE_OPTIONS=--max-old-space-size=3072
-      # PROXY_PUBLIC_URL intentionally omitted — auto-detected from the Funnel Host.
+      # The proxy auto-detects its public base from the Funnel Host header on the first
+      # request. If it doesn't latch (some forwarders rewrite Host), set it EXPLICITLY to
+      # your node's Funnel URL — this is the reliable, immediate option:
+      # - PROXY_PUBLIC_URL=https://usa-tv-next.<your-tailnet>.ts.net
+      # (find <your-tailnet> in the Tailscale admin; with hostname 'usa-tv-next' above the
+      #  full URL is usa-tv-next.<tailnet>.ts.net)
     volumes:
       - usatv-cache:/app/cache
     restart: unless-stopped
