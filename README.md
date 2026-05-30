@@ -74,6 +74,8 @@ Some upstream feeds are hard for a TV client to play directly — plain HTTP, ra
 - fetch the upstream server-side with a browser User-Agent + same-origin Referer, follow redirects, accept any TLS cert;
 - **rewrite HLS manifests** so variant playlists, segments, keys and audio tracks are fetched back through the proxy too (otherwise the player would hit the bare segment URLs and 403).
 
+> **TVPass now requires the proxy.** tvpass.org 302-redirects each request to a load-balanced, IP-bound, tokenized host (`*.thetvapp.to`) — a naive player refreshing the live playlist gets a different host/token each time and 404s its segments (infinite buffer). The proxy gives the player one stable URL and handles the redirect/token/segment-rewriting from a single server IP, so **tvpass (the primary provider) and Google DAI are always proxied** (built-in `REDIRECT_PROVIDERS`). This means the proxy must be active — i.e. run behind Tailscale Funnel / a public base — for tvpass to play.
+
 The client only ever sees a clean HTTPS URL on your own host. The public base is **auto-detected from the request Host** (so behind Tailscale Funnel / a reverse proxy it needs no config); set `PROXY_PUBLIC_URL` to force an explicit base, or `PROXY_DISABLE=1` to turn it off (fragile streams then served directly, sorted last). The proxy relays video bytes, so size the host accordingly if many channels rely on it.
 
 ## Deploy with Tailscale Funnel (free, permanent HTTPS, no port-forwarding)
