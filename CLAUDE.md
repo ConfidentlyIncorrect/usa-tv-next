@@ -54,10 +54,10 @@ Run stream testing on macmini for speed: `ssh ben@macmini`. Requires `eval "$(/o
 
 ```
 manifest.json              — Stremio addon manifest (id: community.usa-tv-next)
-catalog/tv/all.json        — Master catalog: 169 channels with metadata + streams
-catalog/tv/all/genre=*.json — Per-genre catalog slices (13 genres)
-meta/tv/ustv-*.json        — Individual channel meta files (190 files)
-stream/tv/ustv-*.json      — Per-channel stream files (460 files, many empty placeholders)
+catalog/tv/all.json        — Master catalog: 247 channels with metadata + streams
+catalog/tv/all/genre=*.json — Per-genre catalog slices (10 genres)
+meta/tv/ustv-*.json        — Individual channel meta files (247, 1:1 with catalog)
+stream/tv/ustv-*.json      — Per-channel stream files (247, 1:1 with catalog; no empty placeholders)
 sources.yaml               — 167 source definitions (GitHub repos, direct URLs, websites, Telegram, paste)
 harvester/                 — Python scraping + testing + injection pipeline
 data/                      — Harvested streams, test results, state (gitignored)
@@ -78,23 +78,22 @@ docker-compose.yml         — Local/host deployment (port 7001, 4 GB, cache vol
 
 ## Channels
 
-169 US TV channels across 13 genres. Channels are hardcoded — adding/removing requires editing catalog files.
+247 US TV channels across 10 genres. Channels are hardcoded — adding/removing requires editing catalog files. Meta and stream files are kept 1:1 with the catalog (no orphan/placeholder files).
 
 | Genre | Count |
 |-------|-------|
-| Sports | 48 |
-| Entertainment | 39 |
-| Kids | 14 |
-| News | 13 |
+| Entertainment | 66 |
+| Sports | 49 |
+| Lifestyle | 31 |
+| Documentaries | 20 |
+| News | 18 |
+| Music | 18 |
+| Kids | 17 |
 | Premium | 13 |
-| Lifestyle | 13 |
-| Documentaries | 11 |
-| Music | 7 |
+| Latino | 9 |
 | Local | 6 |
-| Latino | 5 |
-| + Religious, Shopping, International |
 
-Each channel is a Stremio meta object: `{id, name, genres, poster, posterShape, streams}`. Stream entries: `{url, behaviorHints: {notWebReady: true}, name: "FHD|HD|SD|Audio|[DEAD] HD", description: "HV:SOURCE_TAG"}`.
+Each channel is a Stremio meta object: `{id, name, genres, poster, posterShape, streams}`. Stream entries: `{url, behaviorHints: {notWebReady, proxyHeaders}, name: "{Channel}[ - {Region}] ({FHD|HD|SD|Audio})", description: "{Provider}"}` — the channel name is always in the big label, the region is added for feed-variants, and the provider/supplier goes in the small description (see `harvester/consolidate.py:build_display`).
 
 ## Sources (`sources.yaml`)
 
