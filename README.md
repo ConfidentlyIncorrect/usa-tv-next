@@ -1,6 +1,6 @@
 # USA TV Next
 
-173 live US TV channels across 10 genres: Local, News, Sports, Entertainment, Premium, Lifestyle, Kids, Documentaries, Music, Latino.
+247 live US TV channels across 10 genres: Entertainment, Sports, Lifestyle, Documentaries, Music, News, Kids, Premium, Latino, Local.
 
 This repo ships the addon in **two modes**:
 
@@ -11,7 +11,7 @@ This repo ships the addon in **two modes**:
 
 ## Install (static)
 
-Streams-only addon served straight from GitHub raw — no server, no live guide. Reflects the current **173-channel** catalog with Pluto removed and tvpass-prioritized streams. For live EPG (Now Playing / schedules) use the Combined Docker server below instead.
+Streams-only addon served straight from GitHub raw — no server, no live guide. Reflects the current **247-channel** catalog with Pluto removed and tvpass-prioritized streams. For live EPG (Now Playing / schedules) use the Combined Docker server below instead.
 
 Stremio app (desktop / Android) — paste into the addon search bar, or open:
 
@@ -152,7 +152,7 @@ Notes:
 
 ```
 manifest.json
-catalog/tv/all.json                  # roster (173 channels)
+catalog/tv/all.json                  # roster (247 channels)
 catalog/tv/all/genre={Genre}.json    # per-genre slices
 meta/tv/ustv-{uuid}.json
 stream/tv/ustv-{uuid}.json
