@@ -169,7 +169,9 @@ server/src/
   log.js          — leveled logger (LOG_LEVEL; ISO timestamps; timed() helper)
   config.js       — all env config, logged at boot
   data.js         — HYBRID data layer: roster + per-channel streams
-  epg.js          — XMLTV STREAMING parse (no DOM) + now-playing + disk-cache resilience
+  epg.js          — EPG engine: Schedules Direct (primary, if configured) w/ XMLTV fallback;
+                    XMLTV path is a STREAMING parse (no DOM) + now-playing + disk-cache
+  sd.js           — Schedules Direct JSON provider (token->lineups->stations->schedules->programs)
   channelMap.js   — fuzzy match roster->EPG (130+ overrides); roster from data.js
   manifest.js     — combined manifest (catalog id "all"; resources catalog+meta+stream)
   catalogHandler.js / metaHandler.js — EPG-enriched catalog + meta
@@ -177,9 +179,11 @@ server/src/
   addon.js / server.js — builder wiring + startup + refresh intervals + serveHTTP
 ```
 
-**Hybrid data layer (`data.js`).** Roster read precedence is **live GitHub fetch → emergency cache file → bundled local file**, so the addon survives loss of GitHub access. A `DATA_REFRESH_HOURS` interval re-fetches the roster and rewrites the emergency cache (on the `usatv-cache` volume). Per-channel stream resolution: inline roster `streams` → in-memory cache → bundled local `stream/tv/{id}.json` → lazy GitHub fetch. EPG (`epg.pw`) refreshes on `EPG_REFRESH_HOURS`; the matched-channel subset is persisted to disk for cold-start resilience.
+**Hybrid data layer (`data.js`).** Roster read precedence is **live GitHub fetch → emergency cache file → bundled local file**, so the addon survives loss of GitHub access. A `DATA_REFRESH_HOURS` interval re-fetches the roster and rewrites the emergency cache (on the `usatv-cache` volume). Per-channel stream resolution: inline roster `streams` → in-memory cache → bundled local `stream/tv/{id}.json` → lazy GitHub fetch. EPG refreshes on `EPG_REFRESH_HOURS`; the matched-channel subset is persisted to disk for cold-start resilience.
 
-**Key env vars:** `PORT`/`HOST`, `EPG_URL`, `GITHUB_RAW_BASE`, `DATA_REFRESH_HOURS`, `EPG_REFRESH_HOURS`, `TZ`, `LOG_LEVEL` (set `debug` for per-request routing/cache/fetch logs), `NODE_OPTIONS=--max-old-space-size=3072` (needs ~4 GB for the ~188 MB EPG parse).
+**EPG source (`epg.js` + `sd.js`).** Two-tier: **Schedules Direct** is the PRIMARY guide when `SD_USERNAME`+`SD_PASSWORD` are set (accurate, feed/timezone-correct US listings), and it **falls back to the `EPG_URL` XMLTV feed (epg.pw) on ANY failure** — bad creds, outage, no lineups, empty result, or token revocation (it re-auths+retries once on a 403). With no SD credentials the behaviour is unchanged (epg.pw only). Both sources populate the same channel/programme maps, so now-playing/up-next/day-schedule, the per-channel `EPG_OFFSET_HOURS`, the disk cache, and the fuzzy matcher all work identically either way. **SD one-time setup:** create an account at schedulesdirect.org (~$35/yr), add the lineup(s) covering this catalog (a major cable/satellite lineup for national channels), then set `SD_USERNAME`/`SD_PASSWORD`. The XMLTV path is a low-memory STREAMING parse (no DOM — fixes the prior ~188 MB OOM).
+
+**Key env vars:** `PORT`/`HOST`, `EPG_URL`, `SD_USERNAME`/`SD_PASSWORD` (enable Schedules Direct), `SD_LINEUP` (substring filter to one lineup), `SD_DAYS` (schedule days, default 2), `GITHUB_RAW_BASE`, `DATA_REFRESH_HOURS`, `EPG_REFRESH_HOURS`, `TZ`, `LOG_LEVEL` (set `debug` for per-request routing/cache/fetch logs), `NODE_OPTIONS=--max-old-space-size=3072`.
 
 > Data note: `catalog/tv/all.json` carries empty inline `streams` by design (Stremio fetches streams lazily per id). The server therefore resolves streams from `stream/tv/{id}.json`. Once `inject.py` populates inline `streams` in `all.json`, the roster fetch alone refreshes streams without a redeploy.
 

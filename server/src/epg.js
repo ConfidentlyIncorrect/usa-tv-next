@@ -14,6 +14,7 @@ const { gunzipSync } = require('zlib');
 
 const cfg = require('./config');
 const log = require('./log')('EPG');
+const sd = require('./sd');
 
 const REFRESH_INTERVAL_MS = cfg.EPG_REFRESH_MS;
 const EPG_CACHE_FILE = path.join(cfg.CACHE_DIR, 'epg-cache.json');
@@ -165,29 +166,66 @@ function parseProgrammes(xml, keep) {
 let computeRelevantIds = null;
 function setRelevantIdsProvider(fn) { computeRelevantIds = fn; }
 
-/** Fetch + parse the EPG (streaming, channel-filtered). On failure KEEP existing data. */
+/**
+ * Schedules Direct path (PRIMARY when configured). Mirrors the two-phase XMLTV shape:
+ * load stations -> match roster -> load schedules for matched stations. Returns true only
+ * if it produced usable schedules; any falsy/throw lets fetchEPG fall back to XMLTV.
+ */
+async function _fetchFromSD() {
+    const stations = await sd.loadStations();        // Phase 1: channels (stationID -> {name,icon})
+    if (!stations.size) return false;
+    channels = stations;                              // swap in so the matcher sees SD names
+    const keep = computeRelevantIds ? computeRelevantIds() : null;
+    const progs = await sd.loadSchedules(keep);       // Phase 2: programmes for matched stations
+    if (!progs.size) return false;
+    programmes = progs;
+    lastFetch = Date.now();
+    log.info(`EPG via Schedules Direct: ${channels.size} stations, ${programmes.size} with schedules`
+        + (keep ? ` (filtered to ${keep.size} matched)` : ''));
+    if (keep) persistCache(keep);
+    return true;
+}
+
+/** XMLTV path (FALLBACK / default): streaming, channel-filtered, low-memory scan of EPG_URL. */
+async function _fetchFromXmltv() {
+    log.info(`Fetching EPG data from ${cfg.EPG_URL} ...`);
+    const xmlText = await log.timed('EPG download', () => downloadEpg());
+    log.info(`Scanning XMLTV (${(xmlText.length / 1024 / 1024).toFixed(1)} MB, streaming) ...`);
+
+    // Phase 1: channel definitions (small). Swap in so the matcher sees fresh names.
+    channels = parseChannels(xmlText);
+
+    // Phase 2: match the roster -> the EPG ids we care about, then parse programmes for
+    // ONLY those channels (keeps the schedules map ~250 channels, not ~tens of thousands).
+    const keep = computeRelevantIds ? computeRelevantIds() : null;
+    programmes = parseProgrammes(xmlText, keep);
+    lastFetch = Date.now();
+    log.info(`Loaded ${channels.size} channels, ${programmes.size} with programmes`
+        + (keep ? ` (filtered to ${keep.size} matched)` : ''));
+    if (keep) persistCache(keep);
+}
+
+/**
+ * Fetch + parse the EPG. Tries Schedules Direct first when configured, and falls back to the
+ * XMLTV scan on ANY SD failure (or when SD is not configured). On total failure KEEP existing
+ * in-memory data (cache/last fetch), so the guide degrades gracefully rather than emptying.
+ */
 async function fetchEPG() {
     if (fetching) {
         log.debug('Fetch already in progress; skipping concurrent call');
         return;
     }
     fetching = true;
-    log.info(`Fetching EPG data from ${cfg.EPG_URL} ...`);
     try {
-        const xmlText = await log.timed('EPG download', () => downloadEpg());
-        log.info(`Scanning XMLTV (${(xmlText.length / 1024 / 1024).toFixed(1)} MB, streaming) ...`);
-
-        // Phase 1: channel definitions (small). Swap in so the matcher sees fresh names.
-        channels = parseChannels(xmlText);
-
-        // Phase 2: match the roster -> the EPG ids we care about, then parse programmes for
-        // ONLY those channels (keeps the schedules map ~250 channels, not ~tens of thousands).
-        const keep = computeRelevantIds ? computeRelevantIds() : null;
-        programmes = parseProgrammes(xmlText, keep);
-        lastFetch = Date.now();
-        log.info(`Loaded ${channels.size} channels, ${programmes.size} with programmes`
-            + (keep ? ` (filtered to ${keep.size} matched)` : ''));
-        if (keep) persistCache(keep);
+        if (sd.isConfigured()) {
+            try {
+                if (await _fetchFromSD()) return;
+                log.warn('Schedules Direct returned no usable data; falling back to XMLTV.');
+            } catch (err) {
+                log.warn(`Schedules Direct failed (${err.message}); falling back to XMLTV.`);
+            }
+        }
+        await _fetchFromXmltv();
     } catch (err) {
         log.warn(`Fetch error: ${err.message}. Retaining ${channels.size} channels / ${programmes.size} schedules already in memory.`);
     } finally {

@@ -40,6 +40,20 @@ const STREAM_URL = (id) => `${GITHUB_RAW_BASE}/stream/tv/${id}.json`;
 // XMLTV EPG source (gzipped or plain XML auto-detected by epg.js).
 const EPG_URL = process.env.EPG_URL || 'https://epg.pw/xmltv/epg_US.xml';
 
+// --- Schedules Direct (PRIMARY EPG when configured) ------------------------
+// Schedules Direct (json.schedulesdirect.org) is a paid ($35/yr), accurate, feed-/timezone-
+// correct US listings service. If SD_USERNAME + SD_PASSWORD are set, epg.js uses it as the
+// PRIMARY guide and falls back to the EPG_URL XMLTV path above on ANY failure (bad creds,
+// outage, no lineups, empty result). With no credentials set, behaviour is unchanged (epg.pw).
+// One-time setup on the SD account: add the lineup(s) whose stations cover this catalog
+// (a major cable/satellite lineup for national channels). SD_LINEUP optionally filters to a
+// single lineup by case-insensitive substring. SD_DAYS = how many days of schedule to pull.
+const SD_USERNAME = (process.env.SD_USERNAME || '').trim();
+const SD_PASSWORD = process.env.SD_PASSWORD || '';
+const SD_BASE = (process.env.SD_BASE_URL || 'https://json.schedulesdirect.org/20141201').replace(/\/+$/, '');
+const SD_LINEUP = (process.env.SD_LINEUP || '').trim();
+const SD_DAYS = Math.max(1, Math.min(14, parseInt(process.env.SD_DAYS || '2', 10) || 2));
+
 // --- Provider policy (mirrors harvester/config.py) -------------------------
 // Streams whose URL contains a blocklisted host are never served (Pluto TV is no
 // longer accessible). Streams from priority hosts are sorted to the top of each
@@ -107,6 +121,11 @@ const config = {
     ROSTER_URL,
     STREAM_URL,
     EPG_URL,
+    SD_USERNAME,
+    SD_PASSWORD,
+    SD_BASE,
+    SD_LINEUP,
+    SD_DAYS,
     PORT,
     HOST,
     TZ,
@@ -131,6 +150,8 @@ log.info(`  DATA_ROOT          = ${DATA_ROOT}`);
 log.info(`  CACHE_DIR          = ${CACHE_DIR}`);
 log.info(`  GITHUB_RAW_BASE    = ${GITHUB_RAW_BASE}`);
 log.info(`  EPG_URL            = ${EPG_URL}`);
+log.info(`  EPG SOURCE         = ${SD_USERNAME ? `Schedules Direct (primary, user ${SD_USERNAME}); XMLTV fallback` : 'epg.pw XMLTV (Schedules Direct not configured)'}`);
+if (SD_USERNAME) log.info(`  SD_BASE/DAYS/LINEUP= ${SD_BASE} / ${SD_DAYS}d / ${SD_LINEUP || '(all lineups)'}`);
 log.info(`  PORT / HOST        = ${PORT} / ${HOST}`);
 log.info(`  TZ                 = ${TZ}`);
 log.info(`  DATA_REFRESH_MS    = ${DATA_REFRESH_MS} (${DATA_REFRESH_MS / 3600000}h)`);

@@ -10,6 +10,14 @@ services:
       - HOST=0.0.0.0
       - TZ=America/Denver
       - EPG_URL=https://epg.pw/xmltv/epg_US.xml
+      # Schedules Direct (PRIMARY EPG when set; ~$35/yr, accurate feed/timezone-correct US
+      # listings). Falls back to EPG_URL above on ANY failure, so it's safe to leave unset.
+      # One-time: create the account, add the lineup(s) covering these national channels,
+      # then uncomment. SD_LINEUP filters to one lineup (substring); SD_DAYS = schedule days.
+      # - SD_USERNAME=your_sd_username
+      # - SD_PASSWORD=your_sd_password
+      # - SD_LINEUP=
+      # - SD_DAYS=2
       # Repo the server fetches the latest roster + stream files from (the "fetch" leg
       # of the hybrid data layer). Bundled local files are the offline baseline.
       - GITHUB_RAW_BASE=https://raw.githubusercontent.com/ConfidentlyIncorrect/usa-tv-next/main
