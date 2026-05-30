@@ -5,6 +5,7 @@ requires-python = ">=3.10"
 dependencies = [
     "aiohttp>=3.9",
     "click>=8.1",
+    "pillow>=12.2.0",
     "pydantic>=2.0",
     "pyyaml>=6.0",
     "rich>=13.0",

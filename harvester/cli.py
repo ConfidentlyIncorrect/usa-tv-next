@@ -268,6 +268,16 @@ def logos(force):
 
 
 @main.command()
+@click.option("--only", default=None, help="Comma-separated channel names to (re)generate (default: all famelack).")
+def banners(only):
+    """Normalize channel art into Nuvio-friendly 2:3 posters: composite each famelack
+    channel's logo (iptv-org > curated override > own art, placeholders rejected, else a
+    clean text wordmark) onto the originals' neutral background, and self-host every art URL."""
+    from harvester.banners import run
+    run(set(s.strip() for s in only.split(",")) if only else None)
+
+
+@main.command()
 @click.option("--dry-run", is_flag=True, default=False, help="Report only; do not write files.")
 def relabel(dry_run):
     """Reformat stream names to the detailed convention (e.g. 'CBSN - Denver (HD)'); no re-probe."""
