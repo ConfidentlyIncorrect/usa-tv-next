@@ -318,10 +318,14 @@ def regionalize(dry_run):
 @main.command()
 @click.option("--dry-run", is_flag=True, default=False, help="Report only; do not write files.")
 @click.option("--concurrency", type=int, default=DEFAULT_TEST_CONCURRENCY)
-def consolidate(dry_run, concurrency):
-    """Re-probe all streams: fix Audio/video labels, drop dead, add unique provider identifiers."""
+@click.option("--no-drop", is_flag=True, default=False,
+              help="Fix formats + disambiguate names but NEVER drop a stream (transient/geo/proxy-only "
+                   "failures keep their existing label). Use this for format double-checking.")
+def consolidate(dry_run, concurrency, no_drop):
+    """Re-probe all streams: fix Audio/video labels + add unique provider identifiers (and,
+    without --no-drop, drop dead streams)."""
     from harvester.consolidate import consolidate as do_consolidate
-    stats = do_consolidate(dry_run=dry_run, concurrency=concurrency)
+    stats = do_consolidate(dry_run=dry_run, concurrency=concurrency, no_drop=no_drop)
     for k, v in stats.items():
         console.print(f"  {k}: {v}")
 

@@ -199,6 +199,32 @@ def _uniquify(names: list[str]) -> list[str]:
     return out
 
 
+def _uniquify_by_provider(streams: list[dict]) -> int:
+    """Make same-channel stream names DISTINGUISHABLE. When two feeds share a display name
+    (e.g. two "Vevo '80s (FHD)" from different sources), append the provider so the picker
+    isn't ambiguous: "Vevo '80s (FHD) · Amagi" / "... · Plex". Non-colliding names are left
+    clean (provider stays only in the small description). Mutates `streams`; returns #renamed."""
+    from collections import Counter
+    counts = Counter(s.get("name", "") for s in streams)
+    seen: dict[str, int] = {}
+    renamed = 0
+    for s in streams:
+        n = s.get("name", "")
+        if counts[n] <= 1:
+            continue
+        prov = (s.get("description") or provider_name(s.get("url", "")) or "").strip()
+        cand = f"{n} · {prov}" if prov else n
+        if cand in seen:
+            seen[cand] += 1
+            cand = f"{cand} #{seen[cand]}"
+        else:
+            seen[cand] = 1
+        if cand != n:
+            s["name"] = cand
+            renamed += 1
+    return renamed
+
+
 def parse_quality(name: str) -> str:
     """Extract quality from a stream name. Handles new "Source (HD)" and legacy "HD · X"."""
     m = re.search(r"\(([^)]+)\)\s*$", name or "")
@@ -221,7 +247,7 @@ def _relabel(stream: dict, res_by_url: dict, channel_name: str = "") -> dict:
     return out
 
 
-async def _run(dry_run: bool, concurrency: int) -> dict:
+async def _run(dry_run: bool, concurrency: int, no_drop: bool = False) -> dict:
     files = sorted(glob.glob(os.path.join(STREAM_DIR, "*.json")))
     # gather all unique URLs
     url_set = set()
@@ -270,22 +296,35 @@ async def _run(dry_run: bool, concurrency: int) -> dict:
     from harvester.regional import order_streams
     names_by_id = _channel_name_map()
     stats = {"files_changed": 0, "streams_before": 0, "streams_after": 0,
-             "dropped_dead": 0, "relabeled_audio_to_video": 0, "renamed": 0}
+             "dropped_dead": 0, "relabeled_audio_to_video": 0, "format_fixed": 0,
+             "renamed": 0, "disambiguated": 0}
     for f, streams in per_file.items():
         cname = names_by_id.get(_id_of(f), "")
         stats["streams_before"] += len(streams)
         before = json.dumps({"streams": streams}, separators=(",", ":"))  # snapshot pre-mutation
-        kept = [dict(s) for s in streams if s["url"] in working]  # copy so we compare honestly
-        stats["dropped_dead"] += len(streams) - len(kept)
+        # no_drop: keep every stream (only RE-LABEL the ones that probed live here, so a
+        # transient/geo/proxy-only failure never deletes a working feed). Default: drop dead.
+        if no_drop:
+            kept = [dict(s) for s in streams]
+        else:
+            kept = [dict(s) for s in streams if s["url"] in working]
+            stats["dropped_dead"] += len(streams) - len(kept)
         for s in kept:
+            if no_drop and s["url"] not in working:
+                continue  # couldn't verify here — keep its existing label untouched
+            old_q = parse_quality(s.get("name", ""))
             old = s.get("name", "")
             new = _relabel(s, res_by_url, cname)
-            if old == "Audio" and not new["name"].startswith("Audio"):
-                stats["relabeled_audio_to_video"] += 1
+            new_q = parse_quality(new["name"])
+            if old_q != new_q:
+                stats["format_fixed"] += 1
+                if old_q == "Audio":
+                    stats["relabeled_audio_to_video"] += 1
             if new["name"] != old:
                 stats["renamed"] += 1
             s.update(new)
         kept, _ = order_streams(kept)  # regional ordering + true-dup collapse
+        stats["disambiguated"] += _uniquify_by_provider(kept)
         stats["streams_after"] += len(kept)
         after = json.dumps({"streams": kept}, separators=(",", ":"))
         if after != before:
@@ -296,8 +335,9 @@ async def _run(dry_run: bool, concurrency: int) -> dict:
     return stats
 
 
-def consolidate(dry_run: bool = False, concurrency: int = DEFAULT_TEST_CONCURRENCY) -> dict:
-    return asyncio.run(_run(dry_run, concurrency))
+def consolidate(dry_run: bool = False, concurrency: int = DEFAULT_TEST_CONCURRENCY,
+                no_drop: bool = False) -> dict:
+    return asyncio.run(_run(dry_run, concurrency, no_drop=no_drop))
 
 
 def relabel(dry_run: bool = False) -> dict:
