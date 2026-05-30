@@ -21,15 +21,20 @@ function isBlocked(url) {
 }
 
 // Hosts that MUST always be proxied (when the proxy is active), for two reasons:
-//   • redirect/tokenized: 302 to a tokenized/IP-bound/load-balanced host whose token
-//     expires, so a naive player's playlist refresh fails -> infinite buffer
-//     (tvpass.org -> *.thetvapp.to; dai.google.com);
+//   • redirect/tokenized: 302 to a tokenized/IP-bound/load-balanced host whose token or
+//     SSAI session is minted per-request, so a naive player's playlist refresh mints a
+//     NEW session every poll and its segments 404 -> infinite buffer. Covers:
+//       - tvpass.org -> *.thetvapp.to (expiring token);
+//       - dai.google.com -> /stream/<session> (Google DAI, CBS);
+//       - *.a.run.app  -> dai.google.com (the "amd-mediator" SSAI front for CBS Sports
+//         Golazo: 302s into a fresh DAI session each request, so direct playback buffers
+//         forever; proxying pins the whole redirect+session chain to one server IP).
 //   • XUMO SSAI session: *.fast.nbcuni.com feeds play a second of black then EXIT when
 //     hit directly — proxying normalizes the manifest/session path and they play
 //     (confirmed on the Telemundo feeds; also covers Universal Crime East).
 // The proxy gives the player ONE stable URL and does the redirect/token/segment handling
 // from a single consistent server IP.
-const FORCE_PROXY_HOSTS = ['tvpass.org', 'thetvapp.to', 'dai.google.com', 'fast.nbcuni.com'];
+const FORCE_PROXY_HOSTS = ['tvpass.org', 'thetvapp.to', 'dai.google.com', 'a.run.app', 'fast.nbcuni.com'];
 
 // A "fragile" upstream the native player often can't play directly: cleartext HTTP,
 // raw-IP host, odd port, a cors-proxy, a URL shortener, a redirect/tokenized provider,

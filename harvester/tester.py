@@ -97,21 +97,33 @@ def _has_segments(media_text: str) -> bool:
     return any(ln.strip() and not ln.strip().startswith("#") for ln in media_text.splitlines())
 
 
-async def _hls_manifest_probe(url: str, timeout: float) -> tuple[str, str]:
+def _is_frozen(media_text: str) -> bool:
+    """A MEDIA playlist carrying #EXT-X-ENDLIST is a finite/VOD snapshot. In an all-LIVE
+    catalog that means the origin has FROZEN the feed: e.g. decommissioned amagi FAST feeds
+    (nbcu-telemundo*-firetv.amagi.tv) serve a stuck ~10-segment loop with ENDLIST and an
+    expired (403) first segment. A player treats ENDLIST as VOD and starts at segment 0 —
+    which 403s — so you get a second of black, then a 'stream ended' exit. The segments are
+    still decodable video, so ffprobe is happy and would WRONGLY pass the feed; the ENDLIST
+    marker is the reliable tell. Treat it as DEAD for a live catalog."""
+    return "#EXT-X-ENDLIST" in media_text
+
+
+async def _hls_manifest_probe(url: str, timeout: float) -> tuple[str, str, bool]:
     """Video detection for HLS that VERIFIES PLAYABILITY, not just a reachable master.
-    Returns ("WxH", "codec") only if a variant/media playlist actually LOADS — so a master
-    that returns 200 but whose variant playlists are 404 (expired tokens, e.g. some CBSN
-    feeds) is correctly reported as NOT playable, instead of buffering forever in the
-    player. Returns ("", "") otherwise. Never raises."""
+    Returns ("WxH", "codec", frozen). The (res, codec) are non-empty only if a variant/media
+    playlist actually LOADS with segments — so a master that returns 200 but whose variant
+    playlists are 404 (expired tokens, e.g. some CBSN feeds) is correctly reported as NOT
+    playable instead of buffering forever. ``frozen`` is True when the resolved MEDIA playlist
+    carries #EXT-X-ENDLIST (a frozen/VOD snapshot -> dead in a live catalog). Never raises."""
     if ".m3u8" not in url.lower():
-        return "", ""
+        return "", "", False
     try:
         status, text = await asyncio.wait_for(
             asyncio.to_thread(_fetch_status_text, url, timeout), timeout + 3)
     except Exception:
-        return "", ""
+        return "", "", False
     if status != 200 or not text:
-        return "", ""
+        return "", "", False
 
     res, codec = _parse_hls_manifest(text)
 
@@ -119,20 +131,24 @@ async def _hls_manifest_probe(url: str, timeout: float) -> tuple[str, str]:
         # MASTER: confirm its (first) variant playlist actually loads with segments.
         variant = _first_variant_uri(text, url)
         if not variant:
-            return "", ""
+            return "", "", False
         try:
             vstatus, vtext = await asyncio.wait_for(
                 asyncio.to_thread(_fetch_status_text, variant, timeout), timeout + 3)
         except Exception:
-            return "", ""
+            return "", "", False
         if vstatus != 200 or not _has_segments(vtext):
-            return "", ""          # variant dead/empty -> not playable
-        return res, (codec or "h264")
+            return "", "", False    # variant dead/empty -> not playable
+        if _is_frozen(vtext):
+            return "", "", True     # frozen/ended loop -> dead for live
+        return res, (codec or "h264"), False
 
-    # MEDIA playlist served directly: playable iff it actually has segments.
+    # MEDIA playlist served directly: playable iff it has segments AND is not a frozen loop.
+    if _is_frozen(text):
+        return "", "", True
     if _has_segments(text):
-        return res, (codec or "h264")
-    return "", ""
+        return res, (codec or "h264"), False
+    return "", "", False
 
 
 async def test_stream(url: str, timeout: float = 8.0) -> StreamTestResult:
@@ -164,8 +180,8 @@ async def test_stream(url: str, timeout: float = 8.0) -> StreamTestResult:
             # heavily-tokenized variant URLs even when the master playlist is live and
             # declares video (this is exactly how the player itself consumes them). Treat
             # a fetchable manifest that advertises a video variant as WORKING.
-            m_res, m_codec = await _hls_manifest_probe(url, timeout)
-            if m_res or m_codec:
+            m_res, m_codec, m_frozen = await _hls_manifest_probe(url, timeout)
+            if (m_res or m_codec) and not m_frozen:
                 codecs = CodecInfo(video=(m_codec or "h264"), resolution=m_res)
                 return StreamTestResult(
                     url=url,
@@ -215,7 +231,16 @@ async def test_stream(url: str, timeout: float = 8.0) -> StreamTestResult:
         #     variant 404 — expired-token feeds like some CBSN locals), the stream is NOT
         #     playable and would only buffer forever in the player -> mark DEAD.
         if ".m3u8" in url.lower():
-            m_res, m_codec = await _hls_manifest_probe(url, timeout)
+            m_res, m_codec, m_frozen = await _hls_manifest_probe(url, timeout)
+            if m_frozen:
+                # Frozen/ended loop (ENDLIST in a live catalog). ffprobe may have decoded the
+                # stuck segments and reported video, but the feed is dead -> override to DEAD.
+                return StreamTestResult(
+                    url=url,
+                    status=StreamStatus.DEAD,
+                    response_time_ms=elapsed_ms,
+                    tested_at=datetime.now(timezone.utc).isoformat(),
+                )
             if m_res or m_codec:
                 if m_res:
                     mw = int(m_res.split("x")[0])

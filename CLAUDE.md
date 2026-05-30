@@ -139,6 +139,8 @@ harvester/
 2. **ffprobe**: Test surviving streams (50 concurrent, 8s timeout) → extract codecs, resolution, bitrate
 3. Quality classification: FHD (≥1920w), HD (≥1280w), SD (≥720w), Audio (no video codec)
 
+**HLS validity (`_hls_manifest_probe`)** follows master→variant and only passes a feed whose MEDIA playlist actually loads with segments — so a master that 200s but whose variants 404 (expired tokens) is correctly DEAD, not "buffers forever." It also flags **frozen** feeds: a media playlist carrying `#EXT-X-ENDLIST` in this all-LIVE catalog means a decommissioned/stuck origin (e.g. the dead `nbcu-telemundo*-firetv.amagi.tv` FAST feeds serve a frozen ~10-segment loop with ENDLIST + a 403 first segment → "second of black, then exit"). The segments still decode, so ffprobe wrongly passes them; the ENDLIST marker is the reliable tell and forces DEAD.
+
 Optimal concurrency: 50 ffprobe processes. Higher (200+) overwhelms the system and kills accuracy.
 
 ### Inject Matching

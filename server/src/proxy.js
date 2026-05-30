@@ -138,6 +138,39 @@ function rewriteManifest(text, baseUrl) {
     return out.join('\n');
 }
 
+// --- manifest micro-cache ---------------------------------------------------
+// Live HLS players RE-POLL the media playlist every ~target-duration for new segments, and
+// startup bursts (master -> several variants) plus ABR switches hit the same playlist URLs
+// in quick succession. For redirect/tokenized providers each such fetch is expensive AND
+// rate-limited: tvpass.org 302s to thetvapp.to minting a fresh token, and throttles bursts
+// (hangs after ~2 rapid hits) — which is exactly the "tvpass is slow" symptom. A tiny TTL
+// cache of the REWRITTEN manifest collapses those duplicate upstream fetches without serving
+// a stale live edge: media playlists are cached ~2s (well under one segment's duration),
+// masters ~15s (their variant sets rarely change). The rewritten body is host-relative
+// (/proxy/<b64>) and segments are fetched server-side from our IP, so one cache entry is
+// valid for every client. Segments are never cached (we don't buffer video bytes).
+const _manifestCache = new Map();   // decoded target URL -> { body, expires }
+const _MANIFEST_TTL_MEDIA_MS = parseInt(process.env.PROXY_MANIFEST_TTL_MS || '2000', 10);
+const _MANIFEST_TTL_MASTER_MS = parseInt(process.env.PROXY_MASTER_TTL_MS || '15000', 10);
+const _MANIFEST_CACHE_MAX = 512;
+
+function _cacheGet(key) {
+    const e = _manifestCache.get(key);
+    if (!e) return null;
+    if (e.expires <= Date.now()) { _manifestCache.delete(key); return null; }
+    return e.body;
+}
+
+function _cachePut(key, body, ttl) {
+    if (ttl <= 0) return;
+    if (_manifestCache.size >= _MANIFEST_CACHE_MAX) {
+        // Map preserves insertion order — drop the oldest entry (cheap FIFO eviction).
+        const oldest = _manifestCache.keys().next().value;
+        if (oldest !== undefined) _manifestCache.delete(oldest);
+    }
+    _manifestCache.set(key, { body, expires: Date.now() + ttl });
+}
+
 // --- request handler --------------------------------------------------------
 
 async function handle(req, res) {
@@ -147,6 +180,20 @@ async function handle(req, res) {
     if (!target) {
         res.statusCode = 400;
         return res.end('bad proxy target');
+    }
+
+    // Fast path: a recently-rewritten manifest for this exact target is reusable as-is.
+    // Only manifests are ever cached; segment requests carry a Range and always go upstream.
+    if (!req.headers['range']) {
+        const cached = _cacheGet(target);
+        if (cached !== null) {
+            res.statusCode = 200;
+            res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
+            res.setHeader('Cache-Control', 'no-cache');
+            res.setHeader('Access-Control-Allow-Origin', '*');
+            log.debug(`manifest cache HIT: ${target.slice(0, 70)}`);
+            return res.end(cached);
+        }
     }
 
     const controller = new AbortController();
@@ -171,6 +218,12 @@ async function handle(req, res) {
                 return res.end(text);
             }
             const rewritten = rewriteManifest(text, upstream.url || target);
+            // Cache only good manifests; masters live longer than media playlists.
+            if (upstream.status === 200) {
+                const isMaster = /#EXT-X-STREAM-INF/.test(text);
+                _cachePut(target, rewritten,
+                    isMaster ? _MANIFEST_TTL_MASTER_MS : _MANIFEST_TTL_MEDIA_MS);
+            }
             res.statusCode = 200;
             res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
             res.setHeader('Cache-Control', 'no-cache');

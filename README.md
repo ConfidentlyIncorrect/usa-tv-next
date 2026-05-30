@@ -50,6 +50,8 @@ docker run -d -p 7001:7001 --memory=4g ghcr.io/confidentlyincorrect/usa-tv-next:
 | `STREAM_BLOCKLIST_HOSTS` | `pluto.tv` | Stream hosts never served (comma-separated) |
 | `STREAM_PRIORITY_HOSTS` | `tvpass.org` | Stream hosts sorted to the top of each channel |
 | `PROXY_PUBLIC_URL` | _(unset)_ | Externally-reachable HTTPS base. When set, enables the stream proxy for fragile feeds |
+| `PROXY_MANIFEST_TTL_MS` | `2000` | Micro-cache TTL for proxied **media** playlists (collapses live-poll bursts; eases tvpass throttling) |
+| `PROXY_MASTER_TTL_MS` | `15000` | Micro-cache TTL for proxied **master** playlists |
 | `TZ` | `America/Denver` | Schedule display timezone |
 | `LOG_LEVEL` | `info` | Set `debug` for per-request routing/cache/fetch logs |
 | `NODE_OPTIONS` | `--max-old-space-size=3072` | Headroom for the ~188 MB EPG parse (needs ~4 GB) |
@@ -74,7 +76,11 @@ Some upstream feeds are hard for a TV client to play directly — plain HTTP, ra
 - fetch the upstream server-side with a browser User-Agent + same-origin Referer, follow redirects, accept any TLS cert;
 - **rewrite HLS manifests** so variant playlists, segments, keys and audio tracks are fetched back through the proxy too (otherwise the player would hit the bare segment URLs and 403).
 
-> **TVPass now requires the proxy.** tvpass.org 302-redirects each request to a load-balanced, IP-bound, tokenized host (`*.thetvapp.to`) — a naive player refreshing the live playlist gets a different host/token each time and 404s its segments (infinite buffer). The proxy gives the player one stable URL and handles the redirect/token/segment-rewriting from a single server IP, so **tvpass (the primary provider) and Google DAI are always proxied** (built-in `REDIRECT_PROVIDERS`). This means the proxy must be active — i.e. run behind Tailscale Funnel / a public base — for tvpass to play.
+> **TVPass now requires the proxy.** tvpass.org 302-redirects each request to a load-balanced, IP-bound, tokenized host (`*.thetvapp.to`) — a naive player refreshing the live playlist gets a different host/token each time and 404s its segments (infinite buffer). The proxy gives the player one stable URL and handles the redirect/token/segment-rewriting from a single server IP, so **tvpass (the primary provider) and Google DAI are always proxied** (built-in `FORCE_PROXY_HOSTS`). This means the proxy must be active — i.e. run behind Tailscale Funnel / a public base — for tvpass to play.
+
+> **Force-proxied hosts** (`server/src/streamHandler.js`): `tvpass.org`/`thetvapp.to` (token), `dai.google.com` and `*.a.run.app` (Google DAI / the `amd-mediator` SSAI front for CBS Sports Golazo — each mints a fresh DAI session per request, so direct playback buffers forever), and `*.fast.nbcuni.com` (XUMO SSAI feeds that play a second of black then exit). All are pinned to one server IP so the redirect+session chain stays consistent.
+
+**Latency:** the proxy reuses upstream connections (keep-alive) and keeps a tiny TTL **manifest micro-cache** — media playlists ~2 s, masters ~15 s (`PROXY_MANIFEST_TTL_MS` / `PROXY_MASTER_TTL_MS`). This collapses the duplicate upstream fetches a live player makes (startup bursts, ABR switches, per-poll refreshes) without ever serving a stale live edge, and notably eases tvpass's burst throttling (the "tvpass is slow" symptom). Segments are never cached — only relayed.
 
 The client only ever sees a clean HTTPS URL on your own host. The public base is **auto-detected from the request Host** (so behind Tailscale Funnel / a reverse proxy it needs no config); set `PROXY_PUBLIC_URL` to force an explicit base, or `PROXY_DISABLE=1` to turn it off (fragile streams then served directly, sorted last). The proxy relays video bytes, so size the host accordingly if many channels rely on it.
 
