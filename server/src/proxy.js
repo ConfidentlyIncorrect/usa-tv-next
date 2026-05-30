@@ -23,6 +23,47 @@ const log = require('./log')('Proxy');
 
 const PREFIX = '/proxy/';
 
+// --- public base URL (auto-detected) ---------------------------------------
+// The proxy needs the addon's externally-reachable base to build absolute stream URLs.
+// Explicit PROXY_PUBLIC_URL wins; otherwise we LEARN it from the Host header of incoming
+// requests (Tailscale Funnel / any reverse proxy passes the real public host), so a
+// Funnel deployment needs zero configuration. Pure-local hosts (localhost / private IP)
+// are ignored so we don't hand a private URL to external clients.
+let _observedBase = '';
+
+function _isPublicHost(host) {
+    if (!host) return false;
+    const h = host.split(':')[0].toLowerCase();
+    if (h === 'localhost' || h === '0.0.0.0') return false;
+    if (/^127\./.test(h) || /^10\./.test(h) || /^192\.168\./.test(h)) return false;
+    if (/^172\.(1[6-9]|2\d|3[01])\./.test(h)) return false;
+    return h.includes('.') || h.endsWith('.ts.net');
+}
+
+/** Record the public base from a request (called for every inbound request). */
+function noteRequest(req) {
+    if (cfg.PROXY_PUBLIC_URL) return;  // explicit config wins; nothing to learn
+    const host = req.headers['x-forwarded-host'] || req.headers.host;
+    if (!_isPublicHost(host)) return;
+    const proto = (req.headers['x-forwarded-proto'] || '').split(',')[0].trim()
+        || (host.endsWith('.ts.net') ? 'https' : 'http');  // Funnel is always HTTPS
+    const base = `${proto}://${host}`;
+    if (base !== _observedBase) {
+        _observedBase = base;
+        log.info(`Public base auto-detected: ${base} (proxy active)`);
+    }
+}
+
+/** The base used to build absolute proxy URLs, or '' if unknown. */
+function publicBase() {
+    return (cfg.PROXY_PUBLIC_URL || _observedBase || '').replace(/\/+$/, '');
+}
+
+/** Whether the proxy can currently rewrite fragile streams. */
+function proxyActive() {
+    return !cfg.PROXY_DISABLE && !!publicBase();
+}
+
 function encodeTarget(url) {
     return Buffer.from(url, 'utf-8').toString('base64url');
 }
@@ -161,9 +202,12 @@ async function handle(req, res) {
     }
 }
 
-/** Absolute proxy URL for a target, using the configured public base. */
+/** Absolute proxy URL for a target, using the configured/auto-detected public base. */
 function proxyUrl(target) {
-    return `${cfg.PROXY_PUBLIC_URL.replace(/\/+$/, '')}${PREFIX}${encodeTarget(target)}`;
+    return `${publicBase()}${PREFIX}${encodeTarget(target)}`;
 }
 
-module.exports = { handle, proxyUrl, PREFIX, isManifest, rewriteManifest, encodeTarget, decodeTarget };
+module.exports = {
+    handle, proxyUrl, proxyActive, publicBase, noteRequest, PREFIX,
+    isManifest, rewriteManifest, encodeTarget, decodeTarget,
+};

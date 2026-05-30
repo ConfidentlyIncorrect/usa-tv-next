@@ -74,7 +74,30 @@ Some upstream feeds are hard for a TV client to play directly — plain HTTP, ra
 - fetch the upstream server-side with a browser User-Agent + same-origin Referer, follow redirects, accept any TLS cert;
 - **rewrite HLS manifests** so variant playlists, segments, keys and audio tracks are fetched back through the proxy too (otherwise the player would hit the bare segment URLs and 403).
 
-The client only ever sees a clean HTTPS URL on your own host. Leave `PROXY_PUBLIC_URL` unset to disable (fragile streams are then served directly and merely sorted last). The proxy relays video bytes, so size the host accordingly if many channels rely on it.
+The client only ever sees a clean HTTPS URL on your own host. The public base is **auto-detected from the request Host** (so behind Tailscale Funnel / a reverse proxy it needs no config); set `PROXY_PUBLIC_URL` to force an explicit base, or `PROXY_DISABLE=1` to turn it off (fragile streams then served directly, sorted last). The proxy relays video bytes, so size the host accordingly if many channels rely on it.
+
+## Deploy with Tailscale Funnel (free, permanent HTTPS, no port-forwarding)
+
+Tailscale Funnel gives a stable public URL `https://<hostname>.<tailnet>.ts.net` with automatic HTTPS and works behind NAT/CGNAT. The addon auto-detects that base, so the stream proxy turns on with **zero extra config**.
+
+**Option A — Tailscale on the host (simplest):**
+```bash
+docker compose up -d --build           # addon on http://localhost:7001
+tailscale funnel --bg 7001             # expose it at https://<host>.<tailnet>.ts.net
+```
+(enable HTTPS + Funnel for your tailnet once in the Tailscale admin.)
+
+**Option B — fully containerized (Tailscale sidecar):**
+```bash
+export TS_AUTHKEY=tskey-auth-xxxxx      # from the Tailscale admin
+docker compose -f docker-compose.funnel.yml up -d --build
+```
+This runs the addon + a `tailscale/tailscale` sidecar that funnels `:443 → 127.0.0.1:7001` via `tailscale/funnel.json`.
+
+Either way, install in Stremio/Nuvio with:
+```
+https://<hostname>.<tailnet>.ts.net/manifest.json
+```
 
 ## Provider policy
 

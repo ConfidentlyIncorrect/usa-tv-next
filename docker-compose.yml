@@ -15,11 +15,13 @@ services:
       - GITHUB_RAW_BASE=https://raw.githubusercontent.com/ConfidentlyIncorrect/usa-tv-next/main
       - DATA_REFRESH_HOURS=6
       - EPG_REFRESH_HOURS=6
-      # Stream proxy: set this to the addon's externally-reachable HTTPS base to make
-      # fragile feeds (plain-HTTP / raw-IP / odd-port / header-gated) play reliably —
-      # the server fetches them with proper headers and rewrites HLS so segments are
-      # proxied too. Leave blank to disable (fragile streams served direct).
+      # Stream proxy: makes fragile feeds (plain-HTTP / raw-IP / odd-port / header-gated)
+      # play reliably — the server fetches them with proper headers and rewrites HLS so
+      # segments are proxied too. The public base is AUTO-DETECTED from the request Host
+      # (behind Tailscale Funnel / a reverse proxy it needs nothing). Force an explicit
+      # base with PROXY_PUBLIC_URL, or turn it off with PROXY_DISABLE=1.
       # - PROXY_PUBLIC_URL=https://tv.example.com
+      # For a turnkey Tailscale Funnel deployment, use docker-compose.funnel.yml instead.
       # Set to "debug" for verbose per-request routing / cache / fetch logging.
       - LOG_LEVEL=info
       - NODE_OPTIONS=--max-old-space-size=3072

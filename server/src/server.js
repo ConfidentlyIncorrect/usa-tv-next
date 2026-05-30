@@ -86,6 +86,7 @@ async function main() {
     // Custom HTTP server: our /proxy route, everything else to the Stremio SDK router.
     const router = getRouter(addonInterface);
     const server = http.createServer((req, res) => {
+        proxy.noteRequest(req);  // learn our public base (Funnel/reverse-proxy Host)
         if (req.url && req.url.startsWith(proxy.PREFIX)) {
             return proxy.handle(req, res);
         }

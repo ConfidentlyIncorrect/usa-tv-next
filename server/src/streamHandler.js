@@ -45,9 +45,10 @@ function normalizeStream(s) {
     // { url, behaviorHints:{notWebReady:true, proxyHeaders}, name, description }.
     const behaviorHints = Object.assign({ notWebReady: true }, s.behaviorHints || {});
     let url = s.url;
-    // When the proxy is enabled, route fragile upstreams through our HTTPS /proxy so the
-    // client gets a clean URL and segments are fetched server-side with proper headers.
-    if (cfg.PROXY_ENABLED && isFragile(url)) {
+    // When the proxy is active (we know our public base), route fragile upstreams through
+    // our HTTPS /proxy so the client gets a clean URL and segments are fetched server-side
+    // with proper headers.
+    if (proxy.proxyActive() && isFragile(url)) {
         url = proxy.proxyUrl(url);
         // The proxy already injects headers upstream; the client talks plain HTTPS to us.
         delete behaviorHints.proxyHeaders;
