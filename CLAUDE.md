@@ -21,6 +21,8 @@ uv run python -m harvester clean            # Purge blocklisted providers (Pluto
 uv run python -m harvester tvpass-discover --probe # Scrape tvpass directory, read real slugs, inject live links
 uv run python -m harvester logos            # Grab logos from iptv-org for channels missing a local logo file
 uv run python -m harvester banners          # Normalize art -> clean 2:3 posters (logo on neutral bg / text wordmark) + self-host URLs
+uv run python -m harvester iptvorg-enrich [--apply]  # Add reliable NEW iptv-org US streams to EXISTING channels (ffprobe-validated, deduped by region+quality)
+uv run python -m harvester iptvorg-candidates        # Categorize iptv-org US channels we lack, by the curation rules (report only)
 uv run python -m harvester famelack-enrich  # Add ffprobe-validated famelack streams to EXISTING channels (no new channels)
 uv run python -m harvester famelack-import --keyword telemundo --genre Latino --logo telemundo-us  # Import NEW channels (curated, deduped, validated)
 ```

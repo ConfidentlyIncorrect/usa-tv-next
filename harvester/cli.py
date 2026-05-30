@@ -277,6 +277,24 @@ def banners(only):
     run(set(s.strip() for s in only.split(",")) if only else None)
 
 
+@main.command("iptvorg-enrich")
+@click.option("--apply", is_flag=True, default=False, help="Write the validated new streams (default: dry-run report).")
+@click.option("--limit", type=int, default=None, help="Validate only the first N candidates (debug).")
+def iptvorg_enrich(apply, limit):
+    """Add reliable NEW streams from iptv-org's US playlist to EXISTING catalog channels
+    (the source behind zhangboheng's Easy-Web-TV-M3u8). Matches by name, applies the
+    curation rules, ffprobe-validates (live + real video), dedups, reorders."""
+    from harvester.iptvorg import enrich
+    enrich(apply=apply, limit=limit)
+
+
+@main.command("iptvorg-candidates")
+def iptvorg_candidates():
+    """Categorize iptv-org US channels we DON'T have yet by the curation rules (report only)."""
+    from harvester.iptvorg import candidates
+    candidates()
+
+
 @main.command()
 @click.option("--dry-run", is_flag=True, default=False, help="Report only; do not write files.")
 def relabel(dry_run):
