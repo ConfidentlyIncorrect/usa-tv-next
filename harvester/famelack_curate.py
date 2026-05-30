@@ -100,6 +100,7 @@ RESEARCHED_REMOVE = {
     "newsnet": "defunct: ceased operations (owner shut it down)",
     "black news channel": "defunct: shut down 2022 (failed payroll)",
     "ameritrade": "renamed: TD Ameritrade Network -> Schwab Network (2023)",
+    "girlfriends films": "nsfw: adult film studio (iptv-org is_nsfw flag missed it)",
 }
 
 # ----- User-reviewed decisions (per-bullet, from the borderline report) ---------------
