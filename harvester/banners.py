@@ -169,8 +169,11 @@ KNOWN_LOGOS = {
     "Red Bull TV US": "https://jiotvimages.cdn.jio.com/dare_images/images/Red_Bull_TV.png",
     "Revry Queer": "https://i.imgur.com/XuTUaq4.png",
     "Curiosity NOW US": "https://i.imgur.com/KUb4vEz.png",
-    # No reliable hotlinkable logo found for Go2Travel / World Channel / YTA TV /
-    # Midnight Pulp / XITE Just Chill — these fall back to a clean text wordmark.
+    "Grit Xtra": "https://i.imgur.com/6w1Wj3j.png",        # Grit network logo (iptv-org Grit.us)
+    "YTA TV": "https://i.imgur.com/QNGYhNw.png",            # Youtoo America (iptv-org YoutooAmerica.us)
+    "XITE Just Chill": "https://i.imgur.com/jxuwGRi.png",   # XITE brand logo (iptv-org XITE.nl)
+    # Still text-fallback (no reliable hotlinkable logo found): Hallmark Movies & More,
+    # True Crime Network, Midnight Pulp, World Channel, Go2Travel.
 }
 
 # iptv-org names omit our regional/quality qualifiers — try the base name too.
