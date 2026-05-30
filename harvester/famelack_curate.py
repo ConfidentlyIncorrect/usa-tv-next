@@ -94,6 +94,12 @@ RESEARCHED_REMOVE = {
     "hmi promz news": "exotic: Haitian music promo company",
     "6 wise tv": "obscure/niche: no verifiable presence",
     "cafe trade tv": "obscure/niche",
+    # iptv-org US pass (web-researched defunct / renamed):
+    "newsy": "renamed: became Scripps News (Jan 2023) — stale brand",
+    "top stories by newsy": "renamed: Newsy -> Scripps News",
+    "newsnet": "defunct: ceased operations (owner shut it down)",
+    "black news channel": "defunct: shut down 2022 (failed payroll)",
+    "ameritrade": "renamed: TD Ameritrade Network -> Schwab Network (2023)",
 }
 
 # ----- User-reviewed decisions (per-bullet, from the borderline report) ---------------
