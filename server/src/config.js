@@ -43,8 +43,9 @@ const EPG_URL = process.env.EPG_URL || 'https://epg.pw/xmltv/epg_US.xml';
 // --- Schedules Direct (PRIMARY EPG when configured) ------------------------
 // Schedules Direct (json.schedulesdirect.org) is a paid ($35/yr), accurate, feed-/timezone-
 // correct US listings service. If SD_USERNAME + SD_PASSWORD are set, epg.js uses it as the
-// PRIMARY guide and falls back to the EPG_URL XMLTV path above on ANY failure (bad creds,
-// outage, no lineups, empty result). With no credentials set, behaviour is unchanged (epg.pw).
+// PRIMARY guide and MERGES the EPG_URL XMLTV feed (epg.pw) on top to FILL GAPS — channels SD
+// doesn't cover (e.g. FAST/streaming) get their guide from epg.pw. If SD fails entirely, it's
+// epg.pw-only. With no credentials set, behaviour is unchanged (epg.pw only).
 // Lineup setup is AUTOMATIC: set SD_ZIP to your postal code and the server provisions a
 // comprehensive lineup for you via the SD JSON API (no manual curation). It prefers a national
 // SATELLITE lineup (DirecTV/Dish carry virtually all national cable/sports/premium nets + your

@@ -219,6 +219,39 @@ const SD_OVERRIDES = {
  * current EPG channel list (epg.getEPGChannels()). No-op if either side is empty.
  * After a successful build, persists the EPG cache for the matched channels.
  */
+// Match one roster channel against ONE source's entries. Order: SD exact override -> manual
+// (epg.pw-tuned) override -> exact -> strict fuzzy. Returns the matched (prefixed) epg id or null.
+function matchChannel(name, nameLower, entries, fuse) {
+    if (entries.length === 0) return null;
+    // SD exact-name override (resolves only against the SD entry set; no-op on the epg.pw set)
+    if (SD_OVERRIDES[nameLower]) {
+        const t = SD_OVERRIDES[nameLower].toLowerCase();
+        const hit = entries.find((e) => e.nameLower === t);
+        if (hit) return hit.id;
+    }
+    // Manual (epg.pw-tuned) override: substring either direction, then a narrow fuzzy
+    if (MANUAL_OVERRIDES[nameLower]) {
+        const target = MANUAL_OVERRIDES[nameLower].toLowerCase();
+        const found = entries.find((e) => e.nameLower.includes(target) || target.includes(e.nameLower));
+        if (found) return found.id;
+        const fr = fuse.search(MANUAL_OVERRIDES[nameLower]);
+        if (fr.length > 0 && fr[0].score < 0.35) return fr[0].item.id;
+    }
+    // Exact (case-insensitive)
+    const exact = entries.find((e) => e.nameLower === nameLower);
+    if (exact) return exact.id;
+    // Fuzzy (strict — a wrong match is worse than none)
+    const r = fuse.search(name);
+    if (r.length > 0 && r[0].score < 0.30) return r[0].item.id;
+    return null;
+}
+
+/**
+ * Rebuild the ustvId -> epgId map from the roster and the MERGED EPG directory. Two passes give
+ * Schedules Direct priority: pass 1 matches against SD stations (id prefix "sd:"), pass 2 fills
+ * the rest from the epg.pw XMLTV feed ("pw:") — so SD-accurate guides win and epg.pw covers the
+ * FAST/streaming gaps. No-op if either side is empty.
+ */
 function buildChannelMap() {
     const epgChannels = epg.getEPGChannels();
     const ustvChannels = data.getRoster();
@@ -228,61 +261,37 @@ function buildChannelMap() {
         return;
     }
 
-    const epgEntries = [];
+    // Split EPG entries by source via id prefix (legacy/unprefixed cache entries default to SD).
+    const sdEntries = [];
+    const pwEntries = [];
     for (const [id, meta] of epgChannels) {
-        epgEntries.push({ id, name: meta.name, nameLower: meta.name.toLowerCase() });
+        const e = { id, name: meta.name || '', nameLower: (meta.name || '').toLowerCase() };
+        (id.startsWith('pw:') ? pwEntries : sdEntries).push(e);
     }
-
-    const fuse = new Fuse(epgEntries, { keys: ['name'], threshold: 0.3, includeScore: true });
+    const sdFuse = new Fuse(sdEntries, { keys: ['name'], threshold: 0.3, includeScore: true });
+    const pwFuse = new Fuse(pwEntries, { keys: ['name'], threshold: 0.3, includeScore: true });
 
     const newMap = new Map();
-    let matched = 0, manual = 0, fuzzy = 0, missed = 0;
+    let sdN = 0, pwN = 0, missed = 0;
 
     for (const ch of ustvChannels) {
         const ustvName = (ch.name || '').trim();
         const ustvNameLower = ustvName.toLowerCase().trim();
 
-        // 0. Schedules Direct exact-name override (highest priority; precise pin). Binds only
-        //    when that exact SD name exists, so it's a no-op on the epg.pw fallback.
-        if (SD_OVERRIDES[ustvNameLower]) {
-            const t = SD_OVERRIDES[ustvNameLower].toLowerCase();
-            const hit = epgEntries.find((e) => e.nameLower === t);
-            if (hit) { newMap.set(ch.id, hit.id); matched++; manual++; continue; }
-        }
+        // Pass 1: Schedules Direct wins where it has the channel (accurate, feed/timezone-correct).
+        let id = matchChannel(ustvName, ustvNameLower, sdEntries, sdFuse);
+        if (id) { newMap.set(ch.id, id); sdN++; continue; }
 
-        // 1. Manual override
-        if (MANUAL_OVERRIDES[ustvNameLower]) {
-            const target = MANUAL_OVERRIDES[ustvNameLower].toLowerCase();
-            const found = epgEntries.find((e) => e.nameLower.includes(target) || target.includes(e.nameLower));
-            if (found) { newMap.set(ch.id, found.id); matched++; manual++; continue; }
-            const fr = fuse.search(MANUAL_OVERRIDES[ustvNameLower]);
-            if (fr.length > 0 && fr[0].score < 0.35) { newMap.set(ch.id, fr[0].item.id); matched++; manual++; continue; }
-        }
+        // Pass 2: epg.pw XMLTV fills the gap.
+        id = matchChannel(ustvName, ustvNameLower, pwEntries, pwFuse);
+        if (id) { newMap.set(ch.id, id); pwN++; continue; }
 
-        // 2. Exact match (case-insensitive)
-        const exact = epgEntries.find((e) => e.nameLower === ustvNameLower);
-        if (exact) { newMap.set(ch.id, exact.id); matched++; continue; }
-
-        // 3. Fuzzy match — stricter threshold (0.30) so a weak match doesn't bind a channel
-        //    to the WRONG guide (a wrong match is worse than no guide); near-misses are logged.
-        const results = fuse.search(ustvName);
-        if (results.length > 0 && results[0].score < 0.30) {
-            newMap.set(ch.id, results[0].item.id); matched++; fuzzy++;
-        } else {
-            missed++;
-            const best = results[0];
-            if (best && best.score < 0.45) {
-                log.info(`EPG near-miss (not bound): "${ustvName}" ~ "${best.item.name}" @ ${best.score.toFixed(2)}`);
-            } else {
-                log.debug(`No EPG match for "${ustvName}" (best: ${best?.item?.name || 'none'} @ ${best?.score?.toFixed(2) || 'N/A'})`);
-            }
-        }
+        missed++;
     }
 
     channelMap = newMap;
-    log.info(`Mapping complete: ${matched}/${ustvChannels.length} matched (${manual} manual, ${fuzzy} fuzzy, ${missed} missed)`);
-    // NOTE: epg.persistCache() now runs inside epg.fetchEPG() AFTER programmes are parsed
-    // (programmes don't exist yet at match time in the streaming flow).
+    log.info(`Mapping complete: ${newMap.size}/${ustvChannels.length} matched (${sdN} Schedules Direct, ${pwN} XMLTV gap-fill, ${missed} missed)`);
+    // NOTE: epg.persistCache() runs inside epg.fetchEPG() after programmes are parsed.
 }
 
 function getEPGChannelId(ustvId) { return channelMap.get(ustvId) || null; }
@@ -315,7 +324,7 @@ function getMatchReport() {
         const epgId = channelMap.get(ch.id);
         if (epgId) {
             const meta = epgChannels.get(epgId);
-            matched.push({ channel: ch.name, epg: meta ? meta.name : epgId });
+            matched.push({ channel: ch.name, epg: meta ? meta.name : epgId, source: epgId.startsWith('pw:') ? 'xmltv' : 'sd' });
         } else {
             const r = fuse.search(ch.name || '')[0];
             unmatched.push({

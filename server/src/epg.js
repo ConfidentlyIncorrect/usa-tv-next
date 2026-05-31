@@ -167,48 +167,14 @@ let computeRelevantIds = null;
 function setRelevantIdsProvider(fn) { computeRelevantIds = fn; }
 
 /**
- * Schedules Direct path (PRIMARY when configured). Mirrors the two-phase XMLTV shape:
- * load stations -> match roster -> load schedules for matched stations. Returns true only
- * if it produced usable schedules; any falsy/throw lets fetchEPG fall back to XMLTV.
- */
-async function _fetchFromSD() {
-    const stations = await sd.loadStations();        // Phase 1: channels (stationID -> {name,icon})
-    if (!stations.size) return false;
-    channels = stations;                              // swap in so the matcher sees SD names
-    const keep = computeRelevantIds ? computeRelevantIds() : null;
-    const progs = await sd.loadSchedules(keep);       // Phase 2: programmes for matched stations
-    if (!progs.size) return false;
-    programmes = progs;
-    lastFetch = Date.now();
-    log.info(`EPG via Schedules Direct: ${channels.size} stations, ${programmes.size} with schedules`
-        + (keep ? ` (filtered to ${keep.size} matched)` : ''));
-    if (keep) persistCache(keep);
-    return true;
-}
-
-/** XMLTV path (FALLBACK / default): streaming, channel-filtered, low-memory scan of EPG_URL. */
-async function _fetchFromXmltv() {
-    log.info(`Fetching EPG data from ${cfg.EPG_URL} ...`);
-    const xmlText = await log.timed('EPG download', () => downloadEpg());
-    log.info(`Scanning XMLTV (${(xmlText.length / 1024 / 1024).toFixed(1)} MB, streaming) ...`);
-
-    // Phase 1: channel definitions (small). Swap in so the matcher sees fresh names.
-    channels = parseChannels(xmlText);
-
-    // Phase 2: match the roster -> the EPG ids we care about, then parse programmes for
-    // ONLY those channels (keeps the schedules map ~250 channels, not ~tens of thousands).
-    const keep = computeRelevantIds ? computeRelevantIds() : null;
-    programmes = parseProgrammes(xmlText, keep);
-    lastFetch = Date.now();
-    log.info(`Loaded ${channels.size} channels, ${programmes.size} with programmes`
-        + (keep ? ` (filtered to ${keep.size} matched)` : ''));
-    if (keep) persistCache(keep);
-}
-
-/**
- * Fetch + parse the EPG. Tries Schedules Direct first when configured, and falls back to the
- * XMLTV scan on ANY SD failure (or when SD is not configured). On total failure KEEP existing
- * in-memory data (cache/last fetch), so the guide degrades gracefully rather than emptying.
+ * Fetch + parse the EPG as a DUAL/MERGED guide:
+ *   • Schedules Direct (when configured) provides accurate, feed/timezone-correct guides — it
+ *     wins for every channel it covers.
+ *   • The XMLTV feed (epg.pw) is ALSO fetched and FILLS THE GAPS — channels SD didn't match
+ *     (e.g. FAST/streaming channels SD has no station for) get their guide from epg.pw.
+ * Channels/programmes from each source are namespaced with an "sd:"/"pw:" id prefix so they
+ * coexist in one store; channelMap.buildChannelMap() matches SD first, then epg.pw for the rest.
+ * On total failure KEEP existing in-memory data so the guide degrades gracefully.
  */
 async function fetchEPG() {
     if (fetching) {
@@ -217,15 +183,66 @@ async function fetchEPG() {
     }
     fetching = true;
     try {
-        if (sd.isConfigured()) {
+        const useSD = sd.isConfigured();
+
+        // --- Phase 1: load CHANNELS from each enabled source (names only; cheap) -------------
+        let sdStations = new Map();   // stationID -> { name, icon }
+        if (useSD) {
+            try { sdStations = await sd.loadStations(); }
+            catch (err) { log.warn(`Schedules Direct stations failed (${err.message}); using XMLTV only this run.`); }
+        }
+
+        let xmlText = null;
+        let pwChannels = new Map();   // pwId -> { name, icon }
+        try {
+            log.info(`Fetching XMLTV gap-fill EPG from ${cfg.EPG_URL} ...`);
+            xmlText = await log.timed('EPG download', () => downloadEpg());
+            log.info(`Scanning XMLTV (${(xmlText.length / 1024 / 1024).toFixed(1)} MB, streaming) ...`);
+            pwChannels = parseChannels(xmlText);
+        } catch (err) {
+            log.warn(`XMLTV fetch/parse failed (${err.message}); ${useSD ? 'using Schedules Direct only this run.' : 'no EPG source available.'}`);
+            xmlText = null;
+        }
+
+        if (sdStations.size === 0 && pwChannels.size === 0) {
+            log.warn(`No EPG channels from any source; retaining ${channels.size} channels / ${programmes.size} schedules already in memory.`);
+            return;
+        }
+
+        // --- Phase 2: merge channel directories (prefixed) so the matcher sees both ----------
+        const merged = new Map();
+        for (const [id, m] of sdStations) merged.set(`sd:${id}`, m);
+        for (const [id, m] of pwChannels) merged.set(`pw:${id}`, m);
+        channels = merged;
+
+        // --- Phase 3: match roster -> epg ids (SD-first; returns prefixed ids) ---------------
+        const keep = computeRelevantIds ? computeRelevantIds() : null;
+
+        // --- Phase 4: pull programmes per source for the matched ids, then merge -------------
+        const newProgrammes = new Map();
+        const sdIds = keep ? [...keep].filter((k) => k.startsWith('sd:')).map((k) => k.slice(3)) : [];
+        const pwIds = keep ? new Set([...keep].filter((k) => k.startsWith('pw:')).map((k) => k.slice(3))) : null;
+
+        if (useSD && sdIds.length) {
             try {
-                if (await _fetchFromSD()) return;
-                log.warn('Schedules Direct returned no usable data; falling back to XMLTV.');
+                const sdProgs = await sd.loadSchedules(new Set(sdIds));
+                for (const [id, arr] of sdProgs) newProgrammes.set(`sd:${id}`, arr);
             } catch (err) {
-                log.warn(`Schedules Direct failed (${err.message}); falling back to XMLTV.`);
+                log.warn(`Schedules Direct schedules failed (${err.message}); SD guides skipped this run.`);
             }
         }
-        await _fetchFromXmltv();
+        if (xmlText && (pwIds === null || pwIds.size)) {
+            const pwProgs = parseProgrammes(xmlText, pwIds); // pwIds null => keep all (no provider)
+            for (const [id, arr] of pwProgs) newProgrammes.set(`pw:${id}`, arr);
+        }
+        programmes = newProgrammes;
+        lastFetch = Date.now();
+
+        const sdCount = sdIds.length ? [...programmes.keys()].filter((k) => k.startsWith('sd:')).length : 0;
+        const pwCount = [...programmes.keys()].filter((k) => k.startsWith('pw:')).length;
+        log.info(`EPG merged: ${channels.size} channels (${sdStations.size} SD + ${pwChannels.size} XMLTV); `
+            + `${programmes.size} with schedules (${sdCount} SD, ${pwCount} XMLTV gap-fill)`);
+        if (keep) persistCache(keep);
     } catch (err) {
         log.warn(`Fetch error: ${err.message}. Retaining ${channels.size} channels / ${programmes.size} schedules already in memory.`);
     } finally {
