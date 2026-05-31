@@ -107,85 +107,113 @@ async function _getAccountLineups() {
 }
 
 /**
- * Auto-provision a lineup from SD_ZIP via the SD JSON API so the user never has to curate one.
- * Idempotent + safe: only adds when the account has no lineups (unless SD_FORCE_LINEUP), never
- * removes, respects the daily lineup-change limit, and swallows its own errors (best-effort —
- * loadStations still works off whatever lineups already exist). Prefers a national Satellite
- * lineup (DirecTV/Dish), which carries nearly all national cable/sports/premium nets + the ZIP's
- * local affiliates, so a single lineup covers the whole catalog.
+ * Add the most comprehensive available lineup for SD_ZIP. Picks by ACTUAL channel count
+ * (preview the top-ranked candidates — DirecTV's hundreds beat AFN's ~14), preferring
+ * DirecTV/Dish and avoiding AFN. Returns true if it added a lineup. `changesRemaining` is the
+ * account's remaining daily lineup-change quota (null if unknown).
+ */
+async function _addBestLineup(existing, changesRemaining) {
+    const heads = await _api('GET',
+        `/headends?country=${encodeURIComponent(cfg.SD_COUNTRY)}&postalcode=${encodeURIComponent(cfg.SD_ZIP)}`);
+    const candidates = [];
+    for (const h of heads || []) {
+        for (const lu of (h.lineups || [])) {
+            if (lu.lineup) candidates.push({ lineup: lu.lineup, name: lu.name || '', transport: h.transport || '' });
+        }
+    }
+    log.info(`SD /headends for ${cfg.SD_COUNTRY} ${cfg.SD_ZIP}: ${candidates.length} lineup candidate(s)`
+        + (candidates.length ? ` [${candidates.slice(0, 6).map((c) => `${c.lineup}/${c.transport}`).join(', ')}]` : ''));
+    if (!candidates.length) {
+        log.warn(`No SD headends/lineups found for ${cfg.SD_COUNTRY} ${cfg.SD_ZIP}; add a lineup manually on the SD site.`);
+        return false;
+    }
+
+    const order = cfg.SD_TRANSPORT ? [cfg.SD_TRANSPORT] : ['Satellite', 'Cable', 'IPTV', 'Antenna'];
+    const transportRank = (t) => {
+        const i = order.findIndex((o) => (t || '').toLowerCase().includes(o.toLowerCase()));
+        return i === -1 ? 9 : i;
+    };
+    const score = (c) => {
+        const hay = `${c.lineup || ''} ${c.name || ''}`.toLowerCase();
+        let s = transportRank(c.transport) * 10;
+        if (/ditv|directv|dish/.test(hay)) s -= 100;       // national satellite = best coverage
+        if (_isNicheLineup(c.lineup, c.name)) s += 100;    // AFN etc. — last resort
+        return s;
+    };
+    const have = new Set(existing.map((l) => l.lineup || l.lineupID));
+    const ranked = candidates.filter((c) => !have.has(c.lineup)).sort((a, b) => score(a) - score(b));
+    if (!ranked.length) return false; // nothing new to add
+
+    // Preview is read-only and does NOT count against the lineup-change limit.
+    let pick = ranked[0];
+    let bestCount = -1;
+    for (const c of ranked.slice(0, 8)) {
+        try {
+            const pv = await _api('GET', `/lineups/preview/${encodeURIComponent(c.lineup)}`);
+            const count = Array.isArray(pv) ? pv.length : 0;
+            log.info(`  candidate ${c.lineup} (${c.transport || '?'} — ${c.name}): ${count} channels`);
+            if (count > bestCount) { bestCount = count; pick = c; }
+        } catch (e) {
+            log.debug(`SD preview ${c.lineup} failed: ${e.message}`);
+        }
+    }
+
+    if (changesRemaining !== null && changesRemaining <= 0) {
+        log.warn('SD lineup auto-add skipped: no lineup changes remaining today. Wait for the daily '
+            + 'reset (or add one manually on the SD site).');
+        return false;
+    }
+
+    log.info(`Auto-adding SD lineup ${pick.lineup} (${pick.transport || '?'} — ${pick.name}`
+        + `${bestCount >= 0 ? `, ~${bestCount} channels` : ''}) for ${cfg.SD_COUNTRY} ${cfg.SD_ZIP} ...`);
+    await _api('PUT', `/lineups/${encodeURIComponent(pick.lineup)}`);
+    log.info(`SD lineup ${pick.lineup} added to the account.`);
+    return true;
+}
+
+/**
+ * Remove AFN/niche lineups from the account once a comprehensive one is present (auto-manage
+ * mode, i.e. SD_ZIP is set + creds given). Guarded so it NEVER removes the only/last good
+ * lineup; best-effort and stops if the daily change limit is hit (DELETE costs a change too).
+ */
+async function _removeNicheLineups(lineups) {
+    const good = lineups.filter((l) => !_isNicheLineup(l.lineup || l.lineupID, l.name));
+    const niche = lineups.filter((l) => _isNicheLineup(l.lineup || l.lineupID, l.name));
+    if (!good.length || !niche.length) return; // never strip the account down to nothing
+    for (const l of niche) {
+        const id = l.lineup || l.lineupID;
+        try {
+            log.info(`Removing niche SD lineup ${id} (a comprehensive lineup is present) ...`);
+            await _api('DELETE', `/lineups/${encodeURIComponent(id)}`);
+            log.info(`Removed SD lineup ${id}.`);
+        } catch (e) {
+            log.warn(`Could not remove niche lineup ${id}: ${e.message}`);
+            if (/code 4100|MAX_LINEUP_CHANGES/i.test(e.message || '')) break; // out of changes today; retry next refresh
+        }
+    }
+}
+
+/**
+ * Auto-manage the account's lineups from SD_ZIP (best-effort; swallows its own errors). Adds a
+ * comprehensive lineup when none is present, then removes the tiny AFN military lineup once a
+ * real one exists. Idempotent — once a good lineup is in and AFN is gone, this makes no API
+ * changes. Only runs when SD_ZIP is set; otherwise the user manages lineups by hand.
  */
 async function ensureLineup() {
-    if (!cfg.SD_ZIP) return; // nothing to auto-provision with — user adds lineups manually
+    if (!cfg.SD_ZIP) return;
     try {
-        const cur = await _getAccountLineups();
-        const existing = cur.lineups;
-        // Treat an account that only has AFN as "needs a lineup" so it still gets a comprehensive
-        // one auto-added (heals the earlier bad AFN pick).
+        let acct = await _getAccountLineups();
+        let existing = acct.lineups;
         const hasGoodLineup = existing.some((l) => !_isNicheLineup(l.lineup || l.lineupID, l.name));
-        if (hasGoodLineup && !cfg.SD_FORCE_LINEUP) return; // already has a usable lineup
 
-        const heads = await _api('GET',
-            `/headends?country=${encodeURIComponent(cfg.SD_COUNTRY)}&postalcode=${encodeURIComponent(cfg.SD_ZIP)}`);
-        const candidates = [];
-        for (const h of heads || []) {
-            for (const lu of (h.lineups || [])) {
-                if (lu.lineup) candidates.push({ lineup: lu.lineup, name: lu.name || '', transport: h.transport || '' });
-            }
-        }
-        log.info(`SD /headends for ${cfg.SD_COUNTRY} ${cfg.SD_ZIP}: ${candidates.length} lineup candidate(s)`
-            + (candidates.length ? ` [${candidates.slice(0, 6).map((c) => `${c.lineup}/${c.transport}`).join(', ')}]` : ''));
-        if (!candidates.length) {
-            log.warn(`No SD headends/lineups found for ${cfg.SD_COUNTRY} ${cfg.SD_ZIP}; add a lineup manually on the SD site.`);
-            return;
+        if (!hasGoodLineup || cfg.SD_FORCE_LINEUP) {
+            const added = await _addBestLineup(existing, acct.changesRemaining);
+            if (added) { acct = await _getAccountLineups(); existing = acct.lineups; }
         }
 
-        // Rank candidates: prefer national satellite (DirecTV/Dish carry the most channels),
-        // hard-avoid the tiny AFN military lineup, then honour the transport preference.
-        const order = cfg.SD_TRANSPORT ? [cfg.SD_TRANSPORT] : ['Satellite', 'Cable', 'IPTV', 'Antenna'];
-        const transportRank = (t) => {
-            const i = order.findIndex((o) => (t || '').toLowerCase().includes(o.toLowerCase()));
-            return i === -1 ? 9 : i;
-        };
-        const score = (c) => {
-            const hay = `${c.lineup || ''} ${c.name || ''}`.toLowerCase();
-            let s = transportRank(c.transport) * 10;
-            if (/ditv|directv|dish/.test(hay)) s -= 100;       // national satellite = best coverage
-            if (_isNicheLineup(c.lineup, c.name)) s += 100;    // AFN etc. — last resort
-            return s;
-        };
-        const have = new Set(existing.map((l) => l.lineup || l.lineupID));
-        const ranked = candidates.filter((c) => !have.has(c.lineup)).sort((a, b) => score(a) - score(b));
-        if (!ranked.length) return; // nothing new to add
-
-        // Decide by ACTUAL channel count: preview the top-ranked candidates and pick the one
-        // with the most channels — objectively the comprehensive lineup (DirecTV's hundreds vs
-        // AFN's ~14). Preview is read-only and does NOT count against the lineup-change limit.
-        let pick = ranked[0];
-        let bestCount = -1;
-        for (const c of ranked.slice(0, 8)) {
-            try {
-                const pv = await _api('GET', `/lineups/preview/${encodeURIComponent(c.lineup)}`);
-                const count = Array.isArray(pv) ? pv.length : 0;
-                log.info(`  candidate ${c.lineup} (${c.transport || '?'} — ${c.name}): ${count} channels`);
-                if (count > bestCount) { bestCount = count; pick = c; }
-            } catch (e) {
-                log.debug(`SD preview ${c.lineup} failed: ${e.message}`);
-            }
-        }
-
-        const remaining = cur.changesRemaining;
-        if (remaining !== null && remaining <= 0) {
-            log.warn('SD lineup auto-add skipped: no lineup changes remaining today. Remove an unused '
-                + 'lineup or wait for the daily reset (or add one manually on the SD site).');
-            return;
-        }
-
-        log.info(`Auto-adding SD lineup ${pick.lineup} (${pick.transport || '?'} — ${pick.name}`
-            + `${bestCount >= 0 ? `, ~${bestCount} channels` : ''}) for ${cfg.SD_COUNTRY} ${cfg.SD_ZIP} ...`);
-        await _api('PUT', `/lineups/${encodeURIComponent(pick.lineup)}`);
-        log.info(`SD lineup ${pick.lineup} added to the account.`);
+        await _removeNicheLineups(existing);
     } catch (e) {
-        log.warn(`SD lineup auto-provision failed (${e.message}); using whatever lineups already exist.`);
+        log.warn(`SD lineup auto-manage failed (${e.message}); using whatever lineups already exist.`);
     }
 }
 
