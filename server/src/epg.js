@@ -136,6 +136,31 @@ function parseChannels(xml) {
     return out;
 }
 
+/** Cheap pass: the LATEST programme start (14-digit YYYYMMDDHHMMSS) per channel id. Lets the
+ *  matcher prefer the FRESHEST feed entry when one channel name appears in several feeds — the
+ *  i.mjh.nz Samsung/Plex/Roku guides each list a channel under a different id and some are stale
+ *  (e.g. RetroCrush: Samsung had only programmes from 5 days ago while Plex/Roku were current).
+ *  Scans only the <programme ...> open tags (no block slicing), so it's a fast linear pass. */
+function scanLatestStarts(xml) {
+    const out = new Map();
+    let i = xml.indexOf('<programme ');
+    while (i !== -1) {
+        const gt = xml.indexOf('>', i);
+        if (gt === -1) break;
+        const open = xml.slice(i, gt);
+        const cm = open.match(/channel="([^"]+)"/);
+        const sm = open.match(/start="(\d{8,14})/);
+        if (cm && sm) {
+            const id = cm[1];
+            const s = sm[1].padEnd(14, '0');           // normalize so lexical compare is correct
+            const cur = out.get(id);
+            if (cur === undefined || s > cur) out.set(id, s);
+        }
+        i = xml.indexOf('<programme ', gt);
+    }
+    return out;
+}
+
 /** Scan <programme> elements, keeping ONLY those whose channel is in `keep` (a Set), or
  *  all if `keep` is null. */
 function parseProgrammes(xml, keep) {
@@ -220,7 +245,10 @@ async function fetchEPG() {
                 try {
                     const t = await log.timed(`EPG download [${src.prefix}] ${url.split('/').pop()}`, () => downloadEpg(url));
                     texts.push(t);
-                    for (const [id, m] of parseChannels(t)) if (!chans.has(id)) chans.set(id, m);
+                    const latest = scanLatestStarts(t); // freshness per id, for same-name tie-breaking
+                    for (const [id, m] of parseChannels(t)) {
+                        if (!chans.has(id)) { m.cov = latest.get(id) || ''; chans.set(id, m); }
+                    }
                 } catch (err) {
                     log.warn(`XMLTV fetch/parse failed for ${url} (${err.message}); skipping this feed.`);
                 }

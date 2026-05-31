@@ -243,19 +243,34 @@ const SD_OVERRIDES = {
 // substring -> exact name. No fuzzy. Returns the matched (prefixed) epg id or null. Run across ALL
 // tiers before any fuzzy, so an exact/override hit in a lower tier beats a fuzzy hit in a higher
 // tier (e.g. "Movies!" exact in epg.pw must win over an SD fuzzy "MovieSphere Gold").
+// Among entries with the EXACT target name, return the FRESHEST (greatest `cov` = latest
+// programme start). The same channel name can appear in several tier-3 feeds (i.mjh.nz
+// Samsung/Plex/Roku) under different ids, and some are stale — picking the freshest avoids
+// binding to a 5-days-old guide (the RetroCrush bug). `cov` is '' for sources we don't scan
+// (SD), so those just fall back to first-wins.
+function bestByName(entries, target) {
+    let best = null;
+    for (const e of entries) {
+        if (e.nameLower !== target) continue;
+        if (!best || (e.cov || '') > (best.cov || '')) best = e;
+    }
+    return best;
+}
+
 function matchStrong(name, nameLower, entries) {
     if (entries.length === 0) return null;
     if (SD_OVERRIDES[nameLower]) {
-        const t = SD_OVERRIDES[nameLower].toLowerCase();
-        const hit = entries.find((e) => e.nameLower === t);
+        const hit = bestByName(entries, SD_OVERRIDES[nameLower].toLowerCase());
         if (hit) return hit.id;
     }
     if (MANUAL_OVERRIDES[nameLower]) {
         const target = MANUAL_OVERRIDES[nameLower].toLowerCase();
+        const exactHit = bestByName(entries, target); // exact + freshest first
+        if (exactHit) return exactHit.id;
         const found = entries.find((e) => e.nameLower.includes(target) || target.includes(e.nameLower));
         if (found) return found.id;
     }
-    const exact = entries.find((e) => e.nameLower === nameLower);
+    const exact = bestByName(entries, nameLower);
     if (exact) return exact.id;
     return null;
 }
@@ -294,7 +309,7 @@ function buildChannelMap() {
     const groups = new Map(ORDER.map((p) => [p, []]));
     for (const [id, meta] of epgChannels) {
         const prefix = ORDER.find((p) => id.startsWith(p)) || 'sd:';
-        groups.get(prefix).push({ id, name: meta.name || '', nameLower: (meta.name || '').toLowerCase() });
+        groups.get(prefix).push({ id, name: meta.name || '', nameLower: (meta.name || '').toLowerCase(), cov: meta.cov || '' });
     }
     const fuses = new Map();
     for (const [p, entries] of groups) fuses.set(p, new Fuse(entries, { keys: ['name'], threshold: 0.3, includeScore: true }));
