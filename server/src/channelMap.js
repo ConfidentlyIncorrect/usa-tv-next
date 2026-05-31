@@ -218,6 +218,18 @@ const SD_OVERRIDES = {
     'nosey us': 'Nosey',
     'curiosity now us': 'Curiosity NOW',
     'yta tv': 'YTA Youtoo America',
+    // FAST-channel name variants (epgshare01/mjh.nz spell these differently than our roster)
+    'lego channel': 'The LEGO Channel',
+    'canela tv': 'Canela.TV',
+    'pocket.watch': 'pocket.watch Game-On',
+    'samuel goldwyn classics': 'Samuel Goldwyn Channel',
+    'floracing': 'FloRacing 24/7',
+    'red bull tv us': 'Red Bull TV',
+    'documentary+ us': 'Documentary+',
+    'bloomberg originals us': 'Bloomberg Originals',
+    'fifa+ united states': 'FIFA+',
+    'dry bar comedy+': 'Dry Bar Comedy',
+    'toongoggles': 'Toon Goggles',
 };
 
 /**

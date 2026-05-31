@@ -52,7 +52,8 @@ const EPGSHARE_URLS = (process.env.EPGSHARE_URLS !== undefined
     : 'https://epgshare01.online/epgshare01/epg_ripper_US2.xml.gz,'
     + 'https://i.mjh.nz/SamsungTVPlus/us.xml.gz,'
     + 'https://i.mjh.nz/Plex/all.xml.gz,'
-    + 'https://i.mjh.nz/PlutoTV/us.xml.gz'
+    + 'https://i.mjh.nz/PlutoTV/us.xml.gz,'
+    + 'https://i.mjh.nz/Roku/all.xml.gz'
 ).split(',').map((s) => s.trim()).filter(Boolean);
 
 // --- Schedules Direct (PRIMARY EPG when configured) ------------------------
