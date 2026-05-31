@@ -11,9 +11,9 @@ services:
       - TZ=America/Denver
       - EPG_URL=https://epg.pw/xmltv/epg_US.xml
       # 3rd-tier EPG gap-fill for FAST/streaming channels SD + epg.pw lack. Default = epgshare01
-      # US2 + Matt Huisman (i.mjh.nz) Samsung TV Plus / Plex / Pluto. On by default; set
+      # US2 + Matt Huisman (i.mjh.nz) Samsung TV Plus / Plex / Pluto / Roku. On by default; set
       # EPGSHARE_URLS= (empty) to disable, or override with your own comma-separated list.
-      # - EPGSHARE_URLS=https://epgshare01.online/epgshare01/epg_ripper_US2.xml.gz,https://i.mjh.nz/SamsungTVPlus/us.xml.gz,https://i.mjh.nz/Plex/all.xml.gz,https://i.mjh.nz/PlutoTV/us.xml.gz
+      # - EPGSHARE_URLS=https://epgshare01.online/epgshare01/epg_ripper_US2.xml.gz,https://i.mjh.nz/SamsungTVPlus/us.xml.gz,https://i.mjh.nz/Plex/all.xml.gz,https://i.mjh.nz/PlutoTV/us.xml.gz,https://i.mjh.nz/Roku/all.xml.gz
       # Schedules Direct (PRIMARY EPG when set; ~$35/yr, accurate feed/timezone-correct US
       # listings). Falls back to EPG_URL above on ANY failure, so it's safe to leave unset.
       # Setup is just creds + your ZIP: SD_ZIP makes the server AUTO-ADD a comprehensive lineup
