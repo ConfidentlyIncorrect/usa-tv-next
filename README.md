@@ -1,17 +1,19 @@
 # USA TV Next
 
-247 live US TV channels across 10 genres: Entertainment, Sports, Lifestyle, Documentaries, Music, News, Kids, Premium, Latino, Local.
+293 live US TV channels across 10 genres: Entertainment (81), Sports (51), Lifestyle (37), News (26), Documentaries (23), Kids (21), Latino (18), Music (17), Premium (13), Local (6).
 
 This repo ships the addon in **two modes**:
 
 1. **Static** (`manifest.json` + `catalog/` + `meta/` + `stream/`) — hosted entirely on GitHub raw URLs, no server. Streams only, no live guide.
-2. **Combined Docker server** (`server/`) — a single Node addon that serves catalog **+ EPG-enriched meta + streams** from one always-on instance. This is the merged successor to the separate `stremio-usatv-epg` guide addon: one install, no meta-resource collision, live Now Playing / Up Next / day schedule. **Recommended.**
+2. **Combined Docker server** (`server/`) — a single Node addon that serves catalog **+ EPG-enriched meta + streams** from one always-on instance. This is the merged successor to the separate `stremio-usatv-epg` guide addon: one install, no meta-resource collision, and a **merged multi-source EPG** (Schedules Direct → epg.pw → epgshare01/i.mjh.nz) driving live Now Playing / Up Next / day schedule. **Recommended.**
+
+> **Companion app:** the [NuvioTV `custom` fork](https://github.com/ConfidentlyIncorrect/NuvioTV/tree/custom) adds a focus-reactive, **live-ticking** EPG panel on the stream-selection screen and a live guide on the channel detail screen, fed by the non-standard `epgSchedule` field this server emits. Standard Stremio clients ignore that field and still render the `description`/`epg` text guide.
 
 > Install only ONE of these in a client. If you install both the static addon and the Docker addon they share the `ustv` id space and collide on the `meta` resource.
 
 ## Install (static)
 
-Streams-only addon served straight from GitHub raw — no server, no live guide. Reflects the current **247-channel** catalog with Pluto removed and tvpass-prioritized streams. For live EPG (Now Playing / schedules) use the Combined Docker server below instead.
+Streams-only addon served straight from GitHub raw — no server, no live guide. Reflects the current **293-channel** catalog with Pluto removed. For live EPG (Now Playing / schedules) and quality-first stream ordering, use the Combined Docker server below instead.
 
 Stremio app (desktop / Android) — paste into the addon search bar, or open:
 
@@ -38,25 +40,41 @@ Or pull the prebuilt image published by CI:
 docker run -d -p 7001:7001 --memory=4g ghcr.io/confidentlyincorrect/usa-tv-next:latest
 ```
 
-**Hybrid data layer:** bundled local JSON (in the image) is the offline baseline; an interval (`DATA_REFRESH_HOURS`) fetches the latest roster from GitHub and writes an emergency cache to the `usatv-cache` volume. Read precedence is **live fetch → emergency cache → bundled local**, so the addon keeps working if GitHub access is lost. The EPG (`epg.pw`) is fetched on `EPG_REFRESH_HOURS` and its matched subset is cached to disk for cold-start resilience.
+**Hybrid data layer:** bundled local JSON (in the image) is the offline baseline; an interval (`DATA_REFRESH_HOURS`) fetches the latest roster from GitHub and writes an emergency cache to the `usatv-cache` volume. Read precedence is **live fetch → emergency cache → bundled local**, so the addon keeps working if GitHub access is lost. The EPG is fetched on `EPG_REFRESH_HOURS` and its matched subset is cached to disk for cold-start resilience.
 
 | Variable | Default | Purpose |
 |---|---|---|
 | `PORT` / `HOST` | `7001` / `0.0.0.0` | HTTP bind |
-| `EPG_URL` | epg.pw US XMLTV | EPG source (gz or plain) |
+| `EPG_URL` | epg.pw US XMLTV | Tier-2 EPG (epg.pw, gz or plain) |
+| `EPGSHARE_URLS` | epgshare01 US2 + i.mjh.nz Samsung/Plex/Pluto/Roku | Tier-3 FAST/streaming gap-fill feeds (comma-separated; `''` disables) |
+| `SD_USERNAME` / `SD_PASSWORD` | _(unset)_ | Schedules Direct creds → enables it as the PRIMARY EPG tier |
+| `SD_ZIP` | _(unset)_ | Postal code → auto-provisions a comprehensive SD lineup (prefers DirecTV/Dish satellite; removes AFN) |
+| `SD_DAYS` / `SD_TRANSPORT` / `SD_LINEUP` | `2` / auto / all | Days of guide / transport override / restrict to one lineup |
+| `STREAM_SORT` | `quality` | `quality` = order feeds FHD>HD>SD>Audio (tvpass tiebreaker); `data` = keep harvester order |
 | `GITHUB_RAW_BASE` | this repo @ `main` | Source for the roster/stream fetch leg |
-| `DATA_REFRESH_HOURS` | `6` | Roster fetch + emergency-cache interval |
-| `EPG_REFRESH_HOURS` | `6` | EPG re-fetch interval |
+| `DATA_REFRESH_HOURS` / `EPG_REFRESH_HOURS` | `6` / `6` | Roster + EPG re-fetch intervals |
+| `RESPONSE_CACHE_SECS` | `300` | `cacheMaxAge` on catalog/meta/stream responses |
 | `STREAM_BLOCKLIST_HOSTS` | `pluto.tv` | Stream hosts never served (comma-separated) |
-| `STREAM_PRIORITY_HOSTS` | `tvpass.org` | Stream hosts sorted to the top of each channel |
+| `STREAM_PRIORITY_HOSTS` | `tvpass.org` | Same-quality tiebreaker provider(s) sorted first |
 | `PROXY_PUBLIC_URL` | _(unset)_ | Externally-reachable HTTPS base. When set, enables the stream proxy for fragile feeds |
-| `PROXY_MANIFEST_TTL_MS` | `2000` | Micro-cache TTL for proxied **media** playlists (collapses live-poll bursts; eases tvpass throttling) |
-| `PROXY_MASTER_TTL_MS` | `15000` | Micro-cache TTL for proxied **master** playlists |
+| `PROXY_FORCE_HOSTS` | _(empty)_ | Extra host/URL substrings to force through the proxy |
+| `PROXY_DISABLE` | _(unset)_ | `1` turns the proxy off (fragile feeds served direct, sorted last) |
+| `PROXY_MANIFEST_TTL_MS` / `PROXY_MASTER_TTL_MS` | `2000` / `15000` | Micro-cache TTL for proxied media / master playlists |
 | `TZ` | `America/Denver` | Schedule display timezone |
 | `LOG_LEVEL` | `info` | Set `debug` for per-request routing/cache/fetch logs |
 | `NODE_OPTIONS` | `--max-old-space-size=3072` | Headroom for the ~188 MB EPG parse (needs ~4 GB) |
 
 > Stremio Web requires HTTPS; for LAN/desktop use the raw `http://<host>:7001/manifest.json`, or front it with a reverse proxy / Cloudflare Tunnel for HTTPS. CI (`.github/workflows/docker.yml`) builds and pushes the image to GHCR on every push to `main`.
+
+### EPG — merged multi-source guide
+
+The server builds **one** guide by merging up to three tiers in priority order; each higher tier wins per channel and lower tiers only **fill gaps**:
+
+1. **Schedules Direct** (optional, ~$35/yr) — accurate, feed-/timezone-correct US listings. Set `SD_USERNAME`/`SD_PASSWORD` + `SD_ZIP` and the server **auto-provisions** a comprehensive lineup via the SD API (prefers a national DirecTV/Dish satellite lineup; auto-removes the tiny AFN military lineup) — no manual lineup curation.
+2. **epg.pw** (`EPG_URL`) — broad US XMLTV.
+3. **epgshare01 + i.mjh.nz** (`EPGSHARE_URLS`) — FAST/streaming long-tail (Samsung TV Plus, Plex, Pluto, Roku) that the first two don't carry: AsianCrush, RetroCrush, Dark Matter, XITE, FilmRise, Vevo, etc.
+
+Programmes from every source share one store via `sd:`/`pw:`/`es:` id prefixes. The roster is matched to EPG names with a two-phase matcher (exact/override across all tiers, then fuzzy) plus a curated override table. With no SD creds it runs epg.pw + epgshare01 only; any tier can fail independently. The parser handles **interleaved** XMLTV feeds (i.mjh.nz lists `<channel>` and its `<programme>`s together) and SD's per-(station,date) responses are accumulated across days so the full local day is covered. Diagnostics: `GET /debug/epg?full=1` (match report) and `GET /debug/schedule?ch=ABC` (a channel's loaded programmes in local time + last-fetch).
 
 ## Routes
 
@@ -67,6 +85,9 @@ docker run -d -p 7001:7001 --memory=4g ghcr.io/confidentlyincorrect/usa-tv-next:
 | Catalog (genre) | `/catalog/tv/all/genre={Genre}.json` |
 | Meta | `/meta/tv/{id}.json` |
 | Stream | `/stream/tv/{id}.json` |
+| Health | `/health` |
+| EPG match report | `/debug/epg?full=1` |
+| Channel schedule dump | `/debug/schedule?ch={name}` |
 
 ## Stream proxy (fragile-feed reliability)
 
@@ -78,7 +99,7 @@ Some upstream feeds are hard for a TV client to play directly — plain HTTP, ra
 
 > **TVPass now requires the proxy.** tvpass.org 302-redirects each request to a load-balanced, IP-bound, tokenized host (`*.thetvapp.to`) — a naive player refreshing the live playlist gets a different host/token each time and 404s its segments (infinite buffer). The proxy gives the player one stable URL and handles the redirect/token/segment-rewriting from a single server IP, so **tvpass (the primary provider) and Google DAI are always proxied** (built-in `FORCE_PROXY_HOSTS`). This means the proxy must be active — i.e. run behind Tailscale Funnel / a public base — for tvpass to play.
 
-> **Force-proxied hosts** (`server/src/streamHandler.js`): `tvpass.org`/`thetvapp.to` (token), `dai.google.com` and `*.a.run.app` (Google DAI / the `amd-mediator` SSAI front for CBS Sports Golazo — each mints a fresh DAI session per request, so direct playback buffers forever), and `*.fast.nbcuni.com` (XUMO SSAI feeds that play a second of black then exit). All are pinned to one server IP so the redirect+session chain stays consistent.
+> **Force-proxied feeds** (`server/src/streamHandler.js`): `tvpass.org`/`thetvapp.to` (token), `dai.google.com` and `*.a.run.app` (Google DAI / the `amd-mediator` SSAI front for CBS Sports Golazo — each mints a fresh DAI session per request, so direct playback buffers forever), `*.fast.nbcuni.com`, `*.amagi.tv`, `*.uplynk.com`, `*.mediatailor.*` (SSAI ad-stitchers that play a second of black then exit), and any URL carrying the XUMO SSAI marker `ads.xumo_channelId` (on plain CloudFront hosts). All are pinned to one server IP so the redirect+session chain stays consistent.
 
 **Latency:** the proxy reuses upstream connections (keep-alive) and keeps a tiny TTL **manifest micro-cache** — media playlists ~2 s, masters ~15 s (`PROXY_MANIFEST_TTL_MS` / `PROXY_MASTER_TTL_MS`). This collapses the duplicate upstream fetches a live player makes (startup bursts, ABR switches, per-poll refreshes) without ever serving a stale live edge, and notably eases tvpass's burst throttling (the "tvpass is slow" symptom). Segments are never cached — only relayed.
 
@@ -109,10 +130,10 @@ https://<hostname>.<tailnet>.ts.net/manifest.json
 
 ## Provider policy
 
-- **tvpass.org is prioritized** — its streams sort to the top of each channel (most stable provider). Tagged `TP`.
+- **Quality-first stream ordering** (`STREAM_SORT=quality`, default) — each channel's feeds are ordered FHD > HD > SD > Audio, with **tvpass.org preferred as a same-quality tiebreaker** and the harvester's regional order kept as a final tiebreaker. This surfaces the best-quality feed (usually the one carrying WebVTT subtitles) as the default/auto-play stream. Set `STREAM_SORT=data` to keep the raw harvester order.
 - **pluto.tv is blocked** — no longer accessible; filtered at injection time, purged by `clean`, and dropped at runtime by the server.
 - famelack streams are tagged `FL`; other harvested streams use a host-based tag.
-- All stream entries set `behaviorHints.notWebReady=true` so the native HLS player surfaces embedded subtitle tracks automatically.
+- **Subtitles**: streams set `behaviorHints.notWebReady=true` so the native HLS player surfaces in-manifest **WebVTT** subtitle renditions automatically (the proxy preserves them). Re-streamed feeds that carry only **CEA-608/708** in-band captions are handled by the NuvioTV fork's player (it exposes them as a selectable "Closed Captions" track).
 
 ## Data pipeline (the `harvester/`)
 
@@ -152,7 +173,7 @@ Notes:
 
 ```
 manifest.json
-catalog/tv/all.json                  # roster (247 channels)
+catalog/tv/all.json                  # roster (293 channels)
 catalog/tv/all/genre={Genre}.json    # per-genre slices
 meta/tv/ustv-{uuid}.json
 stream/tv/ustv-{uuid}.json
