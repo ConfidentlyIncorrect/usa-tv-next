@@ -173,7 +173,10 @@ async function loadStations() {
         const lineupId = lu.lineup || lu.lineupID || '';
         if (cfg.SD_LINEUP && !String(lineupId).toLowerCase().includes(cfg.SD_LINEUP.toLowerCase())) continue;
         try {
-            const d = await _api('GET', lu.uri || `/lineups/${lineupId}`);
+            // NOTE: do NOT use lu.uri here — SD returns it WITH the API-version prefix
+            // ("/20141201/lineups/X"), and _api prepends SD_BASE (which already ends in
+            // /20141201), so lu.uri would double the prefix and 404. Use the version-less path.
+            const d = await _api('GET', `/lineups/${encodeURIComponent(lineupId)}`);
             for (const s of (d && d.stations) || []) {
                 if (!s.stationID) continue;
                 const name = (s.name || s.callsign || s.stationID || '').trim();
