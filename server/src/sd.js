@@ -297,7 +297,13 @@ async function loadSchedules(keep) {
         const resp = await _api('POST', '/schedules', batch);
         for (const st of resp || []) {
             if (!st || !st.stationID || !Array.isArray(st.programs)) continue;
-            const list = [];
+            // SD returns ONE response element per (stationID, DATE). A multi-date request therefore
+            // yields several elements for the SAME station — so APPEND to the station's list; do NOT
+            // create a fresh list and `set` it (that kept only the LAST date, leaving the guide with
+            // a single UTC day that starts at 00:00 UTC = 6 PM Denver, hence "no now playing before
+            // 6 PM"). Accumulate every date's programmes, then sort once below.
+            let list = stationProgs.get(st.stationID);
+            if (!list) { list = []; stationProgs.set(st.stationID, list); }
             for (const p of st.programs) {
                 if (!p.programID || !p.airDateTime) continue;
                 const start = new Date(p.airDateTime);
@@ -306,7 +312,6 @@ async function loadSchedules(keep) {
                 list.push({ programID: p.programID, start, stop });
                 neededProgramIds.add(p.programID);
             }
-            if (list.length) stationProgs.set(st.stationID, list);
         }
     }
     if (stationProgs.size === 0) return new Map();
