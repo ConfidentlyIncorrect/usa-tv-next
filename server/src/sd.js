@@ -265,7 +265,14 @@ async function loadStations() {
 function _dateRange(days) {
     const out = [];
     const base = Date.now();
-    for (let i = 0; i < days; i++) {
+    // Start ONE day BEFORE today's UTC date. SD returns schedules aligned to UTC days, but our
+    // users are in UTC-NEGATIVE zones (the Americas): the local current day's morning/afternoon
+    // falls on the PREVIOUS UTC date. Fetching only [today_UTC .. ] meant that whenever the EPG
+    // was last fetched after ~local 6 PM (i.e. past UTC midnight), today_UTC had already rolled
+    // forward — its 00:00 UTC is local 6 PM — so the guide began at 6 PM with NO morning/afternoon
+    // and no "now playing". Including yesterday_UTC guarantees the full local day is covered for
+    // every US zone (worst case UTC-10). One extra day is cheap.
+    for (let i = -1; i < days; i++) {
         out.push(new Date(base + i * 86400000).toISOString().slice(0, 10)); // YYYY-MM-DD (UTC)
     }
     return out;
