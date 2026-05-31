@@ -31,6 +31,11 @@ let _tokenAt = 0;
 
 function isConfigured() { return !!(cfg.SD_USERNAME && cfg.SD_PASSWORD); }
 
+// AFN (American Forces Network) is a tiny ~14-channel military satellite lineup SD returns even
+// for civilian ZIPs — useless for this catalog. Used to avoid auto-picking it and to skip its
+// stations when a real lineup is also present.
+function _isNicheLineup(id, name) { return /\bafn\b|american forces/i.test(`${id || ''} ${name || ''}`); }
+
 async function _api(method, path, body, useToken = true, _isRetry = false) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), cfg.FETCH_TIMEOUT_MS * 4); // SD POSTs can be big
@@ -114,7 +119,10 @@ async function ensureLineup() {
     try {
         const cur = await _getAccountLineups();
         const existing = cur.lineups;
-        if (existing.length > 0 && !cfg.SD_FORCE_LINEUP) return; // already provisioned
+        // Treat an account that only has AFN as "needs a lineup" so it still gets a comprehensive
+        // one auto-added (heals the earlier bad AFN pick).
+        const hasGoodLineup = existing.some((l) => !_isNicheLineup(l.lineup || l.lineupID, l.name));
+        if (hasGoodLineup && !cfg.SD_FORCE_LINEUP) return; // already has a usable lineup
 
         const heads = await _api('GET',
             `/headends?country=${encodeURIComponent(cfg.SD_COUNTRY)}&postalcode=${encodeURIComponent(cfg.SD_ZIP)}`);
@@ -131,25 +139,49 @@ async function ensureLineup() {
             return;
         }
 
-        // Rank by transport preference (default: Satellite > Cable > IPTV > Antenna).
+        // Rank candidates: prefer national satellite (DirecTV/Dish carry the most channels),
+        // hard-avoid the tiny AFN military lineup, then honour the transport preference.
         const order = cfg.SD_TRANSPORT ? [cfg.SD_TRANSPORT] : ['Satellite', 'Cable', 'IPTV', 'Antenna'];
-        const rank = (t) => {
+        const transportRank = (t) => {
             const i = order.findIndex((o) => (t || '').toLowerCase().includes(o.toLowerCase()));
-            return i === -1 ? 999 : i;
+            return i === -1 ? 9 : i;
         };
-        candidates.sort((a, b) => rank(a.transport) - rank(b.transport));
-
+        const score = (c) => {
+            const hay = `${c.lineup || ''} ${c.name || ''}`.toLowerCase();
+            let s = transportRank(c.transport) * 10;
+            if (/ditv|directv|dish/.test(hay)) s -= 100;       // national satellite = best coverage
+            if (_isNicheLineup(c.lineup, c.name)) s += 100;    // AFN etc. — last resort
+            return s;
+        };
         const have = new Set(existing.map((l) => l.lineup || l.lineupID));
-        const pick = candidates.find((c) => !have.has(c.lineup));
-        if (!pick) return; // best candidate already added
+        const ranked = candidates.filter((c) => !have.has(c.lineup)).sort((a, b) => score(a) - score(b));
+        if (!ranked.length) return; // nothing new to add
+
+        // Decide by ACTUAL channel count: preview the top-ranked candidates and pick the one
+        // with the most channels — objectively the comprehensive lineup (DirecTV's hundreds vs
+        // AFN's ~14). Preview is read-only and does NOT count against the lineup-change limit.
+        let pick = ranked[0];
+        let bestCount = -1;
+        for (const c of ranked.slice(0, 8)) {
+            try {
+                const pv = await _api('GET', `/lineups/preview/${encodeURIComponent(c.lineup)}`);
+                const count = Array.isArray(pv) ? pv.length : 0;
+                log.info(`  candidate ${c.lineup} (${c.transport || '?'} — ${c.name}): ${count} channels`);
+                if (count > bestCount) { bestCount = count; pick = c; }
+            } catch (e) {
+                log.debug(`SD preview ${c.lineup} failed: ${e.message}`);
+            }
+        }
 
         const remaining = cur.changesRemaining;
         if (remaining !== null && remaining <= 0) {
-            log.warn('SD lineup auto-add skipped: no lineup changes remaining today. Add one manually if needed.');
+            log.warn('SD lineup auto-add skipped: no lineup changes remaining today. Remove an unused '
+                + 'lineup or wait for the daily reset (or add one manually on the SD site).');
             return;
         }
 
-        log.info(`Auto-adding SD lineup ${pick.lineup} (${pick.transport || '?'} — ${pick.name}) for ${cfg.SD_COUNTRY} ${cfg.SD_ZIP} ...`);
+        log.info(`Auto-adding SD lineup ${pick.lineup} (${pick.transport || '?'} — ${pick.name}`
+            + `${bestCount >= 0 ? `, ~${bestCount} channels` : ''}) for ${cfg.SD_COUNTRY} ${cfg.SD_ZIP} ...`);
         await _api('PUT', `/lineups/${encodeURIComponent(pick.lineup)}`);
         log.info(`SD lineup ${pick.lineup} added to the account.`);
     } catch (e) {
@@ -168,10 +200,18 @@ async function loadStations() {
         return new Map();
     }
 
+    // If a real lineup is present, skip AFN's ~14 military channels so they don't pollute the
+    // station pool (and cause bogus matches like Ion -> NPR).
+    const hasGood = lineups.some((l) => !_isNicheLineup(l.lineup || l.lineupID, l.name));
+
     const stations = new Map(); // stationID -> { name, icon }
     for (const lu of lineups) {
         const lineupId = lu.lineup || lu.lineupID || '';
         if (cfg.SD_LINEUP && !String(lineupId).toLowerCase().includes(cfg.SD_LINEUP.toLowerCase())) continue;
+        if (hasGood && _isNicheLineup(lineupId, lu.name)) {
+            log.info(`Skipping niche lineup ${lineupId} (a comprehensive lineup is present)`);
+            continue;
+        }
         try {
             // NOTE: do NOT use lu.uri here — SD returns it WITH the API-version prefix
             // ("/20141201/lineups/X"), and _api prepends SD_BASE (which already ends in
