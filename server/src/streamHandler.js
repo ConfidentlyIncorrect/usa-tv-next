@@ -135,15 +135,23 @@ async function handleStream({ type, id }) {
         const dropped = valid.length - allowed.length;
         const streams = allowed.map(normalizeStream);
 
-        // Attach the channel's current guide to every stream (for the fork's left panel).
-        // Read-only against whatever EPG is already in memory; if unmatched/empty, we omit the
-        // field and the panel gracefully falls back to the stream description.
+        // Attach the channel's guide to EVERY stream so the fork's left panel is formatted
+        // CONSISTENTLY for ALL channels — same `epg` slot every time, only the data inside
+        // changes. EPG now/next where available; otherwise a channel description (genre · Live
+        // TV) so it's never blank and never falls back to the bare stream/provider label.
         const epgId = channelMap.getEPGChannelId(id);
+        let guide = '';
         if (epgId) {
             const off = channelMap.getEPGOffset(id);
-            const guide = buildStreamGuide(epg.getNowPlaying(epgId, off), epg.getUpNext(epgId, off));
-            if (guide) streams.forEach((s) => { s.epg = guide; });
+            guide = buildStreamGuide(epg.getNowPlaying(epgId, off), epg.getUpNext(epgId, off));
         }
+        if (!guide) {
+            const ch = data.getChannelById(id);
+            const genre = ch && ((ch.genres && ch.genres[0]) || ch.genre);
+            const desc = `${genre ? `${genre} · ` : ''}Live TV`;
+            guide = epgId ? desc : `${desc}\nNo program guide available`;
+        }
+        streams.forEach((s) => { s.epg = guide; });
 
         log.debug(`Returning ${streams.length} stream(s) for ${id}`
             + (dropped ? ` (dropped ${dropped} blocklisted)` : '')
