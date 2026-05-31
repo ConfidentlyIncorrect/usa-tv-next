@@ -423,6 +423,10 @@ function getGuideWindow(epgChannelId, offsetHours = 0, maxEntries = 48, withDesc
 }
 
 function getEPGChannels() { return channels; }
+
+// Diagnostic: the full loaded programme list for an epg id (raw Date objects). Used by
+// /debug/schedule to see exactly what's in the store (and when it was fetched).
+function getProgrammesFor(epgChannelId) { return programmes.get(epgChannelId) || []; }
 function isStale() { return Date.now() - lastFetch > REFRESH_INTERVAL_MS; }
 
 async function ensureLoaded() {
@@ -447,6 +451,7 @@ module.exports = {
     getDaySchedule,
     getGuideWindow,
     getEPGChannels,
+    getProgrammesFor,
     persistCache,
     loadCache,
     getStatus,

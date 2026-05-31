@@ -128,6 +128,44 @@ async function main() {
                 return res.end(JSON.stringify({ error: e.message }));
             }
         }
+        // Per-channel schedule dump — diagnoses "guide stuck at 6 PM" issues: shows when the EPG
+        // was last fetched, the matched epg id, computed now/next, and the FULL loaded programme
+        // list in BOTH UTC and the configured local TZ, so a missing morning/afternoon, a stale
+        // cache, or a timezone mismatch is immediately visible. Usage: /debug/schedule?ch=abc
+        if (req.url && req.url.split('?')[0] === '/debug/schedule') {
+            res.setHeader('Content-Type', 'application/json');
+            try {
+                const q = new URL(req.url, 'http://x').searchParams.get('ch') || '';
+                const ql = q.toLowerCase().trim();
+                const roster = data.getRoster();
+                const ch = roster.find((c) => c.id === q)
+                    || roster.find((c) => (c.name || '').toLowerCase().trim() === ql)
+                    || roster.find((c) => (c.name || '').toLowerCase().includes(ql));
+                if (!ch) return res.end(JSON.stringify({ error: `no channel matching "${q}"`, hint: 'try ?ch=ABC' }));
+                const epgId = channelMap.getEPGChannelId(ch.id);
+                const off = epgId ? channelMap.getEPGOffset(ch.id) : 0;
+                const fmt = (d) => (d ? d.toLocaleString('en-US', { timeZone: cfg.TZ, hour12: true }) : null);
+                const progs = epgId ? epg.getProgrammesFor(epgId) : [];
+                const now = epgId ? epg.getNowPlaying(epgId, off) : null;
+                const next = epgId ? epg.getUpNext(epgId, off) : null;
+                return res.end(JSON.stringify({
+                    serverTime: { utc: new Date().toISOString(), local: fmt(new Date()), tz: cfg.TZ },
+                    epgStatus: epg.getStatus(),
+                    channel: ch.name,
+                    epgId: epgId || '(unmatched)',
+                    offsetHours: off,
+                    nowPlaying: now ? { title: now.title, startLocal: fmt(now.start), stopLocal: fmt(now.stop) } : null,
+                    upNext: next ? { title: next.title, startLocal: fmt(next.start) } : null,
+                    programmeCount: progs.length,
+                    firstProgramme: progs[0] ? { title: progs[0].title, startUtc: progs[0].start.toISOString(), startLocal: fmt(progs[0].start) } : null,
+                    lastProgramme: progs.length ? { title: progs[progs.length - 1].title, startUtc: progs[progs.length - 1].start.toISOString(), startLocal: fmt(progs[progs.length - 1].start) } : null,
+                    programmes: progs.slice(0, 60).map((p) => ({ startLocal: fmt(p.start), stopLocal: fmt(p.stop), title: p.title })),
+                }, null, 2));
+            } catch (e) {
+                res.statusCode = 500;
+                return res.end(JSON.stringify({ error: e.message }));
+            }
+        }
         router(req, res, () => {
             res.statusCode = 404;
             res.end();
