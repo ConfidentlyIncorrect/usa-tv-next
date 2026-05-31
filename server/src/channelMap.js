@@ -212,6 +212,7 @@ const SD_OVERRIDES = {
     'nesn': 'New England Sports Network National HD',
     'chicago sports network': 'CHSN Blackout',
     'fanduel detroit': 'FanDuel Sports Network Detroit HD- Out of Market',
+    'law & crime': 'Law and Crime',   // epgshare01 US2 spells it "and" (exact pin beats fuzzy)
 };
 
 /**
