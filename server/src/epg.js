@@ -43,15 +43,15 @@ function parseDateTime(str) {
     return isNaN(date.getTime()) ? null : date;
 }
 
-async function downloadEpg() {
+async function downloadEpg(url = cfg.EPG_URL) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), cfg.EPG_FETCH_TIMEOUT_MS);
     try {
-        const response = await fetch(cfg.EPG_URL, { signal: controller.signal });
+        const response = await fetch(url, { signal: controller.signal });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const contentType = response.headers.get('content-type') || '';
         const buf = Buffer.from(await response.arrayBuffer());
-        if (cfg.EPG_URL.endsWith('.gz') || contentType.includes('gzip')) {
+        if (url.endsWith('.gz') || contentType.includes('gzip')) {
             return gunzipSync(buf).toString('utf-8');
         }
         return buf.toString('utf-8');
@@ -166,15 +166,25 @@ function parseProgrammes(xml, keep) {
 let computeRelevantIds = null;
 function setRelevantIdsProvider(fn) { computeRelevantIds = fn; }
 
+// XMLTV gap-fill sources, in priority order AFTER Schedules Direct. Each is an id-prefix + a
+// list of feed URLs (multiple files are merged under the one prefix). channelMap matches in
+// this same order: sd -> pw (epg.pw) -> es (epgshare01).
+function xmltvSources() {
+    const out = [{ prefix: 'pw', urls: [cfg.EPG_URL] }];
+    if (cfg.EPGSHARE_URLS && cfg.EPGSHARE_URLS.length) out.push({ prefix: 'es', urls: cfg.EPGSHARE_URLS });
+    return out;
+}
+
 /**
- * Fetch + parse the EPG as a DUAL/MERGED guide:
- *   • Schedules Direct (when configured) provides accurate, feed/timezone-correct guides — it
- *     wins for every channel it covers.
- *   • The XMLTV feed (epg.pw) is ALSO fetched and FILLS THE GAPS — channels SD didn't match
- *     (e.g. FAST/streaming channels SD has no station for) get their guide from epg.pw.
- * Channels/programmes from each source are namespaced with an "sd:"/"pw:" id prefix so they
- * coexist in one store; channelMap.buildChannelMap() matches SD first, then epg.pw for the rest.
- * On total failure KEEP existing in-memory data so the guide degrades gracefully.
+ * Fetch + parse the EPG as a MERGED multi-source guide:
+ *   • Schedules Direct (when configured) — accurate, feed/timezone-correct — wins for every
+ *     channel it covers.
+ *   • epg.pw (EPG_URL) fills the gaps SD doesn't cover.
+ *   • epgshare01 (EPGSHARE_URLS) is a 3rd tier that fills FAST/streaming channels neither of
+ *     the above carries.
+ * Channels/programmes from each source are namespaced with an "sd:"/"pw:"/"es:" id prefix so
+ * they coexist in one store; channelMap.buildChannelMap() matches in priority order. On total
+ * failure KEEP existing in-memory data so the guide degrades gracefully.
  */
 async function fetchEPG() {
     if (fetching) {
@@ -185,63 +195,75 @@ async function fetchEPG() {
     try {
         const useSD = sd.isConfigured();
 
-        // --- Phase 1: load CHANNELS from each enabled source (names only; cheap) -------------
-        let sdStations = new Map();   // stationID -> { name, icon }
+        // --- Phase 1: load CHANNEL directories from every enabled source (names only) --------
+        let sdStations = new Map(); // stationID -> { name, icon }
         if (useSD) {
             try { sdStations = await sd.loadStations(); }
             catch (err) { log.warn(`Schedules Direct stations failed (${err.message}); using XMLTV only this run.`); }
         }
 
-        let xmlText = null;
-        let pwChannels = new Map();   // pwId -> { name, icon }
-        try {
-            log.info(`Fetching XMLTV gap-fill EPG from ${cfg.EPG_URL} ...`);
-            xmlText = await log.timed('EPG download', () => downloadEpg());
-            log.info(`Scanning XMLTV (${(xmlText.length / 1024 / 1024).toFixed(1)} MB, streaming) ...`);
-            pwChannels = parseChannels(xmlText);
-        } catch (err) {
-            log.warn(`XMLTV fetch/parse failed (${err.message}); ${useSD ? 'using Schedules Direct only this run.' : 'no EPG source available.'}`);
-            xmlText = null;
+        // For each XMLTV source: download its feed(s) and parse channel defs. Keep the raw text
+        // (per feed) so we can stream-parse programmes for only the matched channels in phase 4.
+        const xmlSources = []; // { prefix, texts:[string], channels: Map<rawId,{name,icon}> }
+        for (const src of xmltvSources()) {
+            const texts = [];
+            const chans = new Map();
+            for (const url of src.urls) {
+                try {
+                    const t = await log.timed(`EPG download [${src.prefix}] ${url.split('/').pop()}`, () => downloadEpg(url));
+                    texts.push(t);
+                    for (const [id, m] of parseChannels(t)) if (!chans.has(id)) chans.set(id, m);
+                } catch (err) {
+                    log.warn(`XMLTV fetch/parse failed for ${url} (${err.message}); skipping this feed.`);
+                }
+            }
+            if (texts.length) xmlSources.push({ prefix: src.prefix, texts, channels: chans });
         }
 
-        if (sdStations.size === 0 && pwChannels.size === 0) {
+        if (sdStations.size === 0 && xmlSources.every((s) => s.channels.size === 0)) {
             log.warn(`No EPG channels from any source; retaining ${channels.size} channels / ${programmes.size} schedules already in memory.`);
             return;
         }
 
-        // --- Phase 2: merge channel directories (prefixed) so the matcher sees both ----------
+        // --- Phase 2: merge channel directories (prefixed) so the matcher sees all sources ---
         const merged = new Map();
         for (const [id, m] of sdStations) merged.set(`sd:${id}`, m);
-        for (const [id, m] of pwChannels) merged.set(`pw:${id}`, m);
+        for (const s of xmlSources) for (const [id, m] of s.channels) merged.set(`${s.prefix}:${id}`, m);
         channels = merged;
 
-        // --- Phase 3: match roster -> epg ids (SD-first; returns prefixed ids) ---------------
+        // --- Phase 3: match roster -> epg ids (priority order; returns prefixed ids) ---------
         const keep = computeRelevantIds ? computeRelevantIds() : null;
 
         // --- Phase 4: pull programmes per source for the matched ids, then merge -------------
         const newProgrammes = new Map();
+        const counts = {};
         const sdIds = keep ? [...keep].filter((k) => k.startsWith('sd:')).map((k) => k.slice(3)) : [];
-        const pwIds = keep ? new Set([...keep].filter((k) => k.startsWith('pw:')).map((k) => k.slice(3))) : null;
-
         if (useSD && sdIds.length) {
             try {
                 const sdProgs = await sd.loadSchedules(new Set(sdIds));
                 for (const [id, arr] of sdProgs) newProgrammes.set(`sd:${id}`, arr);
+                counts.sd = sdProgs.size;
             } catch (err) {
                 log.warn(`Schedules Direct schedules failed (${err.message}); SD guides skipped this run.`);
             }
         }
-        if (xmlText && (pwIds === null || pwIds.size)) {
-            const pwProgs = parseProgrammes(xmlText, pwIds); // pwIds null => keep all (no provider)
-            for (const [id, arr] of pwProgs) newProgrammes.set(`pw:${id}`, arr);
+        for (const s of xmlSources) {
+            const pfx = `${s.prefix}:`;
+            const rawIds = keep ? new Set([...keep].filter((k) => k.startsWith(pfx)).map((k) => k.slice(pfx.length))) : null;
+            if (keep && (!rawIds || rawIds.size === 0)) continue;
+            let n = 0;
+            for (const text of s.texts) {
+                for (const [id, arr] of parseProgrammes(text, rawIds)) { newProgrammes.set(`${s.prefix}:${id}`, arr); n++; }
+            }
+            counts[s.prefix] = n;
         }
         programmes = newProgrammes;
         lastFetch = Date.now();
 
-        const sdCount = sdIds.length ? [...programmes.keys()].filter((k) => k.startsWith('sd:')).length : 0;
-        const pwCount = [...programmes.keys()].filter((k) => k.startsWith('pw:')).length;
-        log.info(`EPG merged: ${channels.size} channels (${sdStations.size} SD + ${pwChannels.size} XMLTV); `
-            + `${programmes.size} with schedules (${sdCount} SD, ${pwCount} XMLTV gap-fill)`);
+        const srcSummary = Object.entries(counts).map(([k, v]) => `${v} ${k}`).join(', ') || 'none';
+        log.info(`EPG merged: ${channels.size} channels (${sdStations.size} SD`
+            + xmlSources.map((s) => ` + ${s.channels.size} ${s.prefix}`).join('')
+            + `); ${programmes.size} with schedules (${srcSummary})`);
         if (keep) persistCache(keep);
     } catch (err) {
         log.warn(`Fetch error: ${err.message}. Retaining ${channels.size} channels / ${programmes.size} schedules already in memory.`);

@@ -37,8 +37,18 @@ const GITHUB_RAW_BASE = (process.env.GITHUB_RAW_BASE
 const ROSTER_URL = `${GITHUB_RAW_BASE}/catalog/tv/all.json`;
 const STREAM_URL = (id) => `${GITHUB_RAW_BASE}/stream/tv/${id}.json`;
 
-// XMLTV EPG source (gzipped or plain XML auto-detected by epg.js).
+// XMLTV EPG sources (gzipped or plain XML auto-detected by epg.js). These are the 2nd/3rd-tier
+// gap-fill sources behind Schedules Direct. EPG_URL = epg.pw (primary XMLTV). EPGSHARE_URLS =
+// epgshare01.online feeds (3rd tier — adds FAST/streaming channels neither SD nor epg.pw carry:
+// Comet, Buzzr, Court TV, MotorTrend, Vevo, FilmRise, …). Comma-separated; NOT lowercased
+// (filenames like US2/PLEX1 are case-sensitive). Set EPGSHARE_URLS='' to disable the 3rd tier.
 const EPG_URL = process.env.EPG_URL || 'https://epg.pw/xmltv/epg_US.xml';
+const EPGSHARE_URLS = (process.env.EPGSHARE_URLS !== undefined
+    ? process.env.EPGSHARE_URLS
+    : 'https://epgshare01.online/epgshare01/epg_ripper_US2.xml.gz,'
+    + 'https://epgshare01.online/epgshare01/epg_ripper_PLEX1.xml.gz,'
+    + 'https://epgshare01.online/epgshare01/epg_ripper_DISTROTV1.xml.gz'
+).split(',').map((s) => s.trim()).filter(Boolean);
 
 // --- Schedules Direct (PRIMARY EPG when configured) ------------------------
 // Schedules Direct (json.schedulesdirect.org) is a paid ($35/yr), accurate, feed-/timezone-
@@ -134,6 +144,7 @@ const config = {
     ROSTER_URL,
     STREAM_URL,
     EPG_URL,
+    EPGSHARE_URLS,
     SD_USERNAME,
     SD_PASSWORD,
     SD_BASE,
@@ -167,6 +178,7 @@ log.info(`  DATA_ROOT          = ${DATA_ROOT}`);
 log.info(`  CACHE_DIR          = ${CACHE_DIR}`);
 log.info(`  GITHUB_RAW_BASE    = ${GITHUB_RAW_BASE}`);
 log.info(`  EPG_URL            = ${EPG_URL}`);
+log.info(`  EPGSHARE_URLS      = ${EPGSHARE_URLS.length ? `${EPGSHARE_URLS.length} feed(s)` : '(disabled)'}`);
 log.info(`  EPG SOURCE         = ${SD_USERNAME ? `Schedules Direct (primary, user ${SD_USERNAME}); XMLTV fallback` : 'epg.pw XMLTV (Schedules Direct not configured)'}`);
 if (SD_USERNAME) log.info(`  SD_BASE/DAYS/LINEUP= ${SD_BASE} / ${SD_DAYS}d / ${SD_LINEUP || '(all lineups)'}`);
 if (SD_USERNAME) log.info(`  SD AUTO-LINEUP     = ${SD_ZIP ? `ZIP ${SD_ZIP} (${SD_COUNTRY}), transport ${SD_TRANSPORT || 'auto: prefer Satellite'}${SD_FORCE_LINEUP ? ', force' : ''}` : 'off (add lineups manually on SD site)'}`);

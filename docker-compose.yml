@@ -10,6 +10,9 @@ services:
       - HOST=0.0.0.0
       - TZ=America/Denver
       - EPG_URL=https://epg.pw/xmltv/epg_US.xml
+      # 3rd-tier EPG gap-fill (epgshare01.online — FAST/streaming channels SD + epg.pw lack).
+      # On by default; set EPGSHARE_URLS= (empty) to disable, or override with your own list.
+      # - EPGSHARE_URLS=https://epgshare01.online/epgshare01/epg_ripper_US2.xml.gz,https://epgshare01.online/epgshare01/epg_ripper_PLEX1.xml.gz,https://epgshare01.online/epgshare01/epg_ripper_DISTROTV1.xml.gz
       # Schedules Direct (PRIMARY EPG when set; ~$35/yr, accurate feed/timezone-correct US
       # listings). Falls back to EPG_URL above on ANY failure, so it's safe to leave unset.
       # Setup is just creds + your ZIP: SD_ZIP makes the server AUTO-ADD a comprehensive lineup

@@ -261,36 +261,37 @@ function buildChannelMap() {
         return;
     }
 
-    // Split EPG entries by source via id prefix (legacy/unprefixed cache entries default to SD).
-    const sdEntries = [];
-    const pwEntries = [];
+    // Source priority by id prefix: SD first, then epg.pw, then epgshare01. Unknown/legacy
+    // (unprefixed) entries fall into the SD bucket so a cold-start cache still matches.
+    const ORDER = ['sd:', 'pw:', 'es:'];
+    const groups = new Map(ORDER.map((p) => [p, []]));
     for (const [id, meta] of epgChannels) {
-        const e = { id, name: meta.name || '', nameLower: (meta.name || '').toLowerCase() };
-        (id.startsWith('pw:') ? pwEntries : sdEntries).push(e);
+        const prefix = ORDER.find((p) => id.startsWith(p)) || 'sd:';
+        groups.get(prefix).push({ id, name: meta.name || '', nameLower: (meta.name || '').toLowerCase() });
     }
-    const sdFuse = new Fuse(sdEntries, { keys: ['name'], threshold: 0.3, includeScore: true });
-    const pwFuse = new Fuse(pwEntries, { keys: ['name'], threshold: 0.3, includeScore: true });
+    const fuses = new Map();
+    for (const [p, entries] of groups) fuses.set(p, new Fuse(entries, { keys: ['name'], threshold: 0.3, includeScore: true }));
 
     const newMap = new Map();
-    let sdN = 0, pwN = 0, missed = 0;
+    const counts = { 'sd:': 0, 'pw:': 0, 'es:': 0 };
+    let missed = 0;
 
     for (const ch of ustvChannels) {
         const ustvName = (ch.name || '').trim();
         const ustvNameLower = ustvName.toLowerCase().trim();
-
-        // Pass 1: Schedules Direct wins where it has the channel (accurate, feed/timezone-correct).
-        let id = matchChannel(ustvName, ustvNameLower, sdEntries, sdFuse);
-        if (id) { newMap.set(ch.id, id); sdN++; continue; }
-
-        // Pass 2: epg.pw XMLTV fills the gap.
-        id = matchChannel(ustvName, ustvNameLower, pwEntries, pwFuse);
-        if (id) { newMap.set(ch.id, id); pwN++; continue; }
-
-        missed++;
+        let bound = false;
+        for (const p of ORDER) { // higher-priority source wins
+            const entries = groups.get(p);
+            if (!entries.length) continue;
+            const id = matchChannel(ustvName, ustvNameLower, entries, fuses.get(p));
+            if (id) { newMap.set(ch.id, id); counts[p]++; bound = true; break; }
+        }
+        if (!bound) missed++;
     }
 
     channelMap = newMap;
-    log.info(`Mapping complete: ${newMap.size}/${ustvChannels.length} matched (${sdN} Schedules Direct, ${pwN} XMLTV gap-fill, ${missed} missed)`);
+    log.info(`Mapping complete: ${newMap.size}/${ustvChannels.length} matched `
+        + `(${counts['sd:']} Schedules Direct, ${counts['pw:']} epg.pw, ${counts['es:']} epgshare01, ${missed} missed)`);
     // NOTE: epg.persistCache() runs inside epg.fetchEPG() after programmes are parsed.
 }
 
@@ -324,7 +325,7 @@ function getMatchReport() {
         const epgId = channelMap.get(ch.id);
         if (epgId) {
             const meta = epgChannels.get(epgId);
-            matched.push({ channel: ch.name, epg: meta ? meta.name : epgId, source: epgId.startsWith('pw:') ? 'xmltv' : 'sd' });
+            matched.push({ channel: ch.name, epg: meta ? meta.name : epgId, source: epgId.split(':')[0] });
         } else {
             const r = fuse.search(ch.name || '')[0];
             unmatched.push({
