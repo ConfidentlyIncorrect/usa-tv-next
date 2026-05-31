@@ -140,10 +140,13 @@ async function handleStream({ type, id }) {
         // changes. EPG now/next where available; otherwise a channel description (genre · Live
         // TV) so it's never blank and never falls back to the bare stream/provider label.
         const epgId = channelMap.getEPGChannelId(id);
+        const off = epgId ? channelMap.getEPGOffset(id) : 0;
         let guide = '';
+        let schedule = null; // [{s,e,t}] absolute times -> client computes live now/next & ticks
         if (epgId) {
-            const off = channelMap.getEPGOffset(id);
             guide = buildStreamGuide(epg.getNowPlaying(epgId, off), epg.getUpNext(epgId, off));
+            schedule = epg.getGuideWindow(epgId, off);
+            if (!schedule.length) schedule = null;
         }
         if (!guide) {
             const ch = data.getChannelById(id);
@@ -151,7 +154,10 @@ async function handleStream({ type, id }) {
             const desc = `${genre ? `${genre} · ` : ''}Live TV`;
             guide = epgId ? desc : `${desc}\nNo program guide available`;
         }
-        streams.forEach((s) => { s.epg = guide; });
+        // `epg` = the server-rendered now/next string (back-compat + fallback for clients that
+        // don't tick). `epgSchedule` = the absolute-time window the NuvioTV fork recomputes
+        // now/next from on a 30s clock, so the panel stays live even if this response is cached.
+        streams.forEach((s) => { s.epg = guide; if (schedule) s.epgSchedule = schedule; });
 
         log.debug(`Returning ${streams.length} stream(s) for ${id}`
             + (dropped ? ` (dropped ${dropped} blocklisted)` : '')

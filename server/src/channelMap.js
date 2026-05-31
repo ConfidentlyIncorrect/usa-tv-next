@@ -230,6 +230,8 @@ const SD_OVERRIDES = {
     'fifa+ united states': 'FIFA+',
     'dry bar comedy+': 'Dry Bar Comedy',
     'toongoggles': 'Toon Goggles',
+    'revry queer': 'Revry',                              // roster suffix; flagship feed is "Revry"
+    'stingray greatest holiday hits': 'Stingray Greatest Hits', // off-season rename
 };
 
 /**

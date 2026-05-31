@@ -107,12 +107,20 @@ function _allTagText(block, tag) {
     return out;
 }
 
-/** Scan only the <channel> definitions (the section before the first <programme>). */
+/** Scan ALL <channel> definitions in the document.
+ *  IMPORTANT: do NOT stop at the first <programme>. Some feeds (notably i.mjh.nz's Plex/
+ *  Samsung/Roku/Pluto guides) INTERLEAVE elements — <channel>, then THAT channel's
+ *  <programme>s, then the next <channel>, and so on — instead of listing every <channel>
+ *  up front. The old "stop at first <programme>" optimization dropped every channel after
+ *  the first in those feeds (e.g. AsianCrush, RetroCrush, Dark Matter TV, Hi-YAH!, Stadium,
+ *  TMZ, … — ~40 FAST channels), so they never matched the roster. Scanning the whole string
+ *  for "<channel " is safe: that exact token never occurs inside a <programme channel="...">
+ *  tag (there it's preceded by a space, not "<"), and indexOf over even the 188 MB epg.pw
+ *  feed is a single fast linear pass. */
 function parseChannels(xml) {
     const out = new Map();
-    const limit = (() => { const i = xml.indexOf('<programme'); return i === -1 ? xml.length : i; })();
     let i = xml.indexOf('<channel ');
-    while (i !== -1 && i < limit) {
+    while (i !== -1) {
         const end = xml.indexOf('</channel>', i);
         if (end === -1) break;
         const block = xml.slice(i, end);
@@ -121,7 +129,7 @@ function parseChannels(xml) {
         if (id) {
             const name = _tagText(block, 'display-name');
             const iconM = block.match(/<icon\b[^>]*\bsrc="([^"]*)"/);
-            out.set(id, { name: name, icon: iconM ? iconM[1] : '' });
+            if (!out.has(id)) out.set(id, { name: name, icon: iconM ? iconM[1] : '' });
         }
         i = xml.indexOf('<channel ', end);
     }
@@ -349,11 +357,25 @@ function _now(offsetHours) {
     return new Date(t);
 }
 
+// The current programme is the one with the GREATEST start <= now (NOT the first match):
+// programmes are sorted ascending, so `.find(start<=now && (!stop||stop>now))` used to return
+// the EARLIEST start when entries lacked a `stop` — surfacing a programme from hours/days ago.
+// Here we take the last-started programme, then validate it really covers `now` using its
+// explicit stop, else the next programme's start, else a +6h cap (so a stale/duration-less
+// entry can't masquerade as "now" indefinitely).
 function getNowPlaying(epgChannelId, offsetHours = 0) {
     const progs = programmes.get(epgChannelId);
-    if (!progs) return null;
+    if (!progs || !progs.length) return null;
     const now = _now(offsetHours);
-    return progs.find((p) => p.start <= now && (!p.stop || p.stop > now)) || null;
+    let idx = -1;
+    for (let i = 0; i < progs.length; i++) {
+        if (progs[i].start <= now) idx = i; else break;
+    }
+    if (idx === -1) return null;
+    const p = progs[idx];
+    const nextStart = progs[idx + 1] && progs[idx + 1].start;
+    const effectiveStop = p.stop || nextStart || new Date(p.start.getTime() + 6 * 3600000);
+    return effectiveStop > now ? p : null;
 }
 
 function getUpNext(epgChannelId, offsetHours = 0) {
@@ -370,6 +392,32 @@ function getDaySchedule(epgChannelId, offsetHours = 0) {
     const endOfDay = new Date(now);
     endOfDay.setHours(23, 59, 59, 999);
     return progs.filter((p) => p.start <= endOfDay && (!p.stop || p.stop > now));
+}
+
+/**
+ * A compact upcoming-schedule slice for a channel, as ABSOLUTE wall-clock times the CLIENT can
+ * recompute now/next from on its own ticking clock (so the guide panel stays live and is immune
+ * to stream-response caching — a slightly stale cached response still contains "now" because the
+ * window reaches ~18h forward). Times are shifted by +offsetHours so the client compares against
+ * its real clock. Returns [{ s:ISO, e:ISO|null, t:title }] from now-1h to now+18h, capped.
+ */
+function getGuideWindow(epgChannelId, offsetHours = 0, maxEntries = 48) {
+    const progs = programmes.get(epgChannelId);
+    if (!progs || !progs.length) return [];
+    const shiftMs = (offsetHours || 0) * 3600000;
+    const realNow = Date.now();
+    const from = realNow - 1 * 3600000;
+    const to = realNow + 18 * 3600000;
+    const out = [];
+    for (const p of progs) {
+        if (!p.start) continue;
+        const s = p.start.getTime() + shiftMs;               // shift feed time -> client wall clock
+        const e = p.stop ? p.stop.getTime() + shiftMs : null;
+        if ((e || s) < from || s > to) continue;             // outside the window
+        out.push({ s: new Date(s).toISOString(), e: e ? new Date(e).toISOString() : null, t: p.title || '' });
+        if (out.length >= maxEntries) break;
+    }
+    return out;
 }
 
 function getEPGChannels() { return channels; }
@@ -395,6 +443,7 @@ module.exports = {
     getNowPlaying,
     getUpNext,
     getDaySchedule,
+    getGuideWindow,
     getEPGChannels,
     persistCache,
     loadCache,
