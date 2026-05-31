@@ -78,14 +78,69 @@ async function _auth(force = false) {
     log.info('Authenticated with Schedules Direct');
 }
 
-/** Phase A: authenticate, read the account's lineups, and collect their stations. */
+/**
+ * Auto-provision a lineup from SD_ZIP via the SD JSON API so the user never has to curate one.
+ * Idempotent + safe: only adds when the account has no lineups (unless SD_FORCE_LINEUP), never
+ * removes, respects the daily lineup-change limit, and swallows its own errors (best-effort —
+ * loadStations still works off whatever lineups already exist). Prefers a national Satellite
+ * lineup (DirecTV/Dish), which carries nearly all national cable/sports/premium nets + the ZIP's
+ * local affiliates, so a single lineup covers the whole catalog.
+ */
+async function ensureLineup() {
+    if (!cfg.SD_ZIP) return; // nothing to auto-provision with — user adds lineups manually
+    try {
+        const cur = await _api('GET', '/lineups');
+        const existing = (cur && cur.lineups) || [];
+        if (existing.length > 0 && !cfg.SD_FORCE_LINEUP) return; // already provisioned
+
+        const heads = await _api('GET',
+            `/headends?country=${encodeURIComponent(cfg.SD_COUNTRY)}&postalcode=${encodeURIComponent(cfg.SD_ZIP)}`);
+        const candidates = [];
+        for (const h of heads || []) {
+            for (const lu of (h.lineups || [])) {
+                if (lu.lineup) candidates.push({ lineup: lu.lineup, name: lu.name || '', transport: h.transport || '' });
+            }
+        }
+        if (!candidates.length) {
+            log.warn(`No SD headends/lineups found for ${cfg.SD_COUNTRY} ${cfg.SD_ZIP}; add a lineup manually on the SD site.`);
+            return;
+        }
+
+        // Rank by transport preference (default: Satellite > Cable > IPTV > Antenna).
+        const order = cfg.SD_TRANSPORT ? [cfg.SD_TRANSPORT] : ['Satellite', 'Cable', 'IPTV', 'Antenna'];
+        const rank = (t) => {
+            const i = order.findIndex((o) => (t || '').toLowerCase().includes(o.toLowerCase()));
+            return i === -1 ? 999 : i;
+        };
+        candidates.sort((a, b) => rank(a.transport) - rank(b.transport));
+
+        const have = new Set(existing.map((l) => l.lineup || l.lineupID));
+        const pick = candidates.find((c) => !have.has(c.lineup));
+        if (!pick) return; // best candidate already added
+
+        const remaining = (cur && typeof cur.changesRemaining === 'number') ? cur.changesRemaining : null;
+        if (remaining !== null && remaining <= 0) {
+            log.warn('SD lineup auto-add skipped: no lineup changes remaining today. Add one manually if needed.');
+            return;
+        }
+
+        log.info(`Auto-adding SD lineup ${pick.lineup} (${pick.transport || '?'} — ${pick.name}) for ${cfg.SD_COUNTRY} ${cfg.SD_ZIP} ...`);
+        await _api('PUT', `/lineups/${encodeURIComponent(pick.lineup)}`);
+        log.info(`SD lineup ${pick.lineup} added to the account.`);
+    } catch (e) {
+        log.warn(`SD lineup auto-provision failed (${e.message}); using whatever lineups already exist.`);
+    }
+}
+
+/** Phase A: authenticate, auto-provision a lineup if needed, then collect all lineup stations. */
 async function loadStations() {
     await _auth();
+    await ensureLineup();
     const lineupsResp = await _api('GET', '/lineups');
     const lineups = (lineupsResp && lineupsResp.lineups) || [];
     if (!lineups.length) {
-        log.warn('Schedules Direct account has no lineups added — add one in your SD account, '
-            + 'or unset SD_USERNAME to use epg.pw. Falling back for now.');
+        log.warn('Schedules Direct account has no lineups — set SD_ZIP to auto-add one, add one '
+            + 'on the SD website, or unset SD_USERNAME to use epg.pw. Falling back for now.');
         return new Map();
     }
 

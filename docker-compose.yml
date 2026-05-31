@@ -12,12 +12,17 @@ services:
       - EPG_URL=https://epg.pw/xmltv/epg_US.xml
       # Schedules Direct (PRIMARY EPG when set; ~$35/yr, accurate feed/timezone-correct US
       # listings). Falls back to EPG_URL above on ANY failure, so it's safe to leave unset.
-      # One-time: create the account, add the lineup(s) covering these national channels,
-      # then uncomment. SD_LINEUP filters to one lineup (substring); SD_DAYS = schedule days.
+      # Setup is just creds + your ZIP: SD_ZIP makes the server AUTO-ADD a comprehensive lineup
+      # via SD's API (prefers a national DirecTV/Dish satellite lineup that carries nearly all
+      # these channels + your local affiliates) — no manual lineup curation. It only adds when
+      # the account has none, and never removes. SD_DAYS = days of guide; SD_LINEUP optionally
+      # restricts station collection to one lineup (substring); SD_TRANSPORT overrides the
+      # Satellite preference (Cable/Antenna/IPTV).
       # - SD_USERNAME=your_sd_username
       # - SD_PASSWORD=your_sd_password
-      # - SD_LINEUP=
+      # - SD_ZIP=80202
       # - SD_DAYS=2
+      # - SD_TRANSPORT=Satellite
       # Repo the server fetches the latest roster + stream files from (the "fetch" leg
       # of the hybrid data layer). Bundled local files are the offline baseline.
       - GITHUB_RAW_BASE=https://raw.githubusercontent.com/ConfidentlyIncorrect/usa-tv-next/main

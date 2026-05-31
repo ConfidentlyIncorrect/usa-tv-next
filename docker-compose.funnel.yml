@@ -49,10 +49,11 @@ services:
       - TZ=America/Denver
       - EPG_URL=https://epg.pw/xmltv/epg_US.xml
       # Schedules Direct (PRIMARY EPG when set; accurate feed/timezone-correct US listings).
-      # Falls back to EPG_URL above on any failure, so it's safe to leave unset. One-time:
-      # create the account + add the lineup(s) covering these channels, then uncomment.
+      # Falls back to EPG_URL above on any failure, so it's safe to leave unset. Just set creds
+      # + SD_ZIP and the server AUTO-ADDS a comprehensive lineup via SD's API (no manual setup).
       # - SD_USERNAME=your_sd_username
       # - SD_PASSWORD=your_sd_password
+      # - SD_ZIP=80202
       - GITHUB_RAW_BASE=https://raw.githubusercontent.com/ConfidentlyIncorrect/usa-tv-next/main
       - LOG_LEVEL=info
       - NODE_OPTIONS=--max-old-space-size=3072

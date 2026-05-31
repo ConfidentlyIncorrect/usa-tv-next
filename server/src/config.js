@@ -45,14 +45,23 @@ const EPG_URL = process.env.EPG_URL || 'https://epg.pw/xmltv/epg_US.xml';
 // correct US listings service. If SD_USERNAME + SD_PASSWORD are set, epg.js uses it as the
 // PRIMARY guide and falls back to the EPG_URL XMLTV path above on ANY failure (bad creds,
 // outage, no lineups, empty result). With no credentials set, behaviour is unchanged (epg.pw).
-// One-time setup on the SD account: add the lineup(s) whose stations cover this catalog
-// (a major cable/satellite lineup for national channels). SD_LINEUP optionally filters to a
-// single lineup by case-insensitive substring. SD_DAYS = how many days of schedule to pull.
+// Lineup setup is AUTOMATIC: set SD_ZIP to your postal code and the server provisions a
+// comprehensive lineup for you via the SD JSON API (no manual curation). It prefers a national
+// SATELLITE lineup (DirecTV/Dish carry virtually all national cable/sports/premium nets + your
+// local affiliates for that ZIP), so one lineup covers the whole catalog. It only adds a lineup
+// when the account has none (idempotent across restarts; never auto-removes; respects SD's
+// daily lineup-change limit). Override transport with SD_TRANSPORT (Satellite/Cable/Antenna/
+// IPTV). SD_LINEUP optionally filters station collection to one lineup by substring. If you'd
+// rather add lineups by hand on the SD website, just leave SD_ZIP unset. SD_DAYS = days of guide.
 const SD_USERNAME = (process.env.SD_USERNAME || '').trim();
 const SD_PASSWORD = process.env.SD_PASSWORD || '';
 const SD_BASE = (process.env.SD_BASE_URL || 'https://json.schedulesdirect.org/20141201').replace(/\/+$/, '');
 const SD_LINEUP = (process.env.SD_LINEUP || '').trim();
 const SD_DAYS = Math.max(1, Math.min(14, parseInt(process.env.SD_DAYS || '2', 10) || 2));
+const SD_ZIP = (process.env.SD_ZIP || '').trim();
+const SD_COUNTRY = (process.env.SD_COUNTRY || 'USA').trim();
+const SD_TRANSPORT = (process.env.SD_TRANSPORT || '').trim(); // '' = auto (prefer Satellite)
+const SD_FORCE_LINEUP = process.env.SD_FORCE_LINEUP === '1'; // add the auto lineup even if some already exist
 
 // --- Provider policy (mirrors harvester/config.py) -------------------------
 // Streams whose URL contains a blocklisted host are never served (Pluto TV is no
@@ -126,6 +135,10 @@ const config = {
     SD_BASE,
     SD_LINEUP,
     SD_DAYS,
+    SD_ZIP,
+    SD_COUNTRY,
+    SD_TRANSPORT,
+    SD_FORCE_LINEUP,
     PORT,
     HOST,
     TZ,
@@ -152,6 +165,7 @@ log.info(`  GITHUB_RAW_BASE    = ${GITHUB_RAW_BASE}`);
 log.info(`  EPG_URL            = ${EPG_URL}`);
 log.info(`  EPG SOURCE         = ${SD_USERNAME ? `Schedules Direct (primary, user ${SD_USERNAME}); XMLTV fallback` : 'epg.pw XMLTV (Schedules Direct not configured)'}`);
 if (SD_USERNAME) log.info(`  SD_BASE/DAYS/LINEUP= ${SD_BASE} / ${SD_DAYS}d / ${SD_LINEUP || '(all lineups)'}`);
+if (SD_USERNAME) log.info(`  SD AUTO-LINEUP     = ${SD_ZIP ? `ZIP ${SD_ZIP} (${SD_COUNTRY}), transport ${SD_TRANSPORT || 'auto: prefer Satellite'}${SD_FORCE_LINEUP ? ', force' : ''}` : 'off (add lineups manually on SD site)'}`);
 log.info(`  PORT / HOST        = ${PORT} / ${HOST}`);
 log.info(`  TZ                 = ${TZ}`);
 log.info(`  DATA_REFRESH_MS    = ${DATA_REFRESH_MS} (${DATA_REFRESH_MS / 3600000}h)`);
