@@ -198,7 +198,9 @@ async function handle(req, res) {
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), cfg.PROXY_TIMEOUT_MS);
-    req.on('close', () => controller.abort());
+    // Abort the upstream fetch if the client goes away (channel switch / seek / player teardown).
+    const onClientClose = () => controller.abort();
+    req.on('close', onClientClose);
 
     try {
         const upstream = await fetch(target, {
@@ -240,18 +242,34 @@ async function handle(req, res) {
         }
         res.setHeader('Access-Control-Allow-Origin', '*');
         if (upstream.body) {
-            Readable.fromWeb(upstream.body).pipe(res);
+            const body = Readable.fromWeb(upstream.body);
+            // A client disconnect aborts the fetch mid-stream, which makes `body` emit 'error'
+            // (AbortError). With NO listener that becomes an UNHANDLED 'error' event and crashes
+            // the whole process (the ~5-15 min reboot loop). Handle it: the client is gone, so
+            // just tear down quietly. Real (non-abort) upstream errors are logged at debug.
+            body.on('error', (e) => {
+                if (e && e.name !== 'AbortError') {
+                    log.debug(`proxy stream error for ${target.slice(0, 70)}: ${e.message}`);
+                }
+                if (!res.writableEnded) res.destroy();
+            });
+            res.on('close', () => body.destroy());
+            body.pipe(res);
         } else {
             res.end();
         }
     } catch (err) {
-        if (!res.headersSent) {
-            res.statusCode = 502;
-            res.end(`proxy error: ${err.message}`);
+        // AbortError on client disconnect is expected/benign — don't log it as a failure.
+        if (err && err.name !== 'AbortError') {
+            log.warn(`proxy fetch failed for ${target.slice(0, 70)}: ${err.message}`);
         }
-        log.warn(`proxy fetch failed for ${target.slice(0, 70)}: ${err.message}`);
+        if (!res.headersSent && !res.writableEnded) {
+            res.statusCode = 502;
+            try { res.end(`proxy error: ${err.message}`); } catch { /* client already gone */ }
+        }
     } finally {
         clearTimeout(timer);
+        req.off('close', onClientClose);
     }
 }
 

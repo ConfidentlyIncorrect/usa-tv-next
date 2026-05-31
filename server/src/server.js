@@ -19,6 +19,24 @@ const channelMap = require('./channelMap');
 const addonInterface = require('./addon');
 const proxy = require('./proxy');
 
+// --- process-level safety net ----------------------------------------------------------------
+// This is an always-on streaming addon: the realistic uncaught errors are benign network/stream
+// aborts (e.g. a client disconnecting mid-segment). Crashing + rebooting on those is far worse
+// than logging — a reboot mid-EPG-fetch also leaves the guide half-loaded. So we log and keep
+// running rather than letting one stray async error take the whole process down.
+process.on('unhandledRejection', (reason) => {
+    const r = reason && reason.stack ? reason.stack : reason;
+    if (reason && reason.name === 'AbortError') return; // expected on client disconnect
+    log.error(`Unhandled promise rejection (kept alive): ${r}`);
+});
+process.on('uncaughtException', (err) => {
+    if (err && err.name === 'AbortError') {
+        log.warn(`Ignored stray AbortError (client disconnect): ${err.message}`);
+        return;
+    }
+    log.error(`Uncaught exception (kept alive): ${err && err.stack ? err.stack : err}`);
+});
+
 function logStatus() {
     log.info(`Status: data  = ${JSON.stringify(data.getStatus())}`);
     log.info(`Status: epg   = ${JSON.stringify(epg.getStatus())}`);
