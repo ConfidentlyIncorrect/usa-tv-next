@@ -250,4 +250,43 @@ function getEPGOffset(ustvId) {
     return EPG_OFFSET_HOURS[name] || 0;
 }
 
-module.exports = { buildChannelMap, getEPGChannelId, getMatchCount, matchedEpgIds, getEPGOffset };
+/**
+ * Diagnostic report for tuning the EPG match (served at /debug/epg). Shows what the active EPG
+ * source (epg.pw or Schedules Direct) actually provides vs the roster: matched pairs, unmatched
+ * roster channels with their closest candidate (looser fuse, for visibility only — not binding),
+ * and the full list of available EPG channel names. Used to build accurate name overrides.
+ */
+function getMatchReport() {
+    const epgChannels = epg.getEPGChannels();
+    const roster = data.getRoster();
+    const epgEntries = [];
+    for (const [id, meta] of epgChannels) epgEntries.push({ id, name: meta.name || '' });
+    const fuse = new Fuse(epgEntries, { keys: ['name'], threshold: 0.6, includeScore: true });
+
+    const matched = [];
+    const unmatched = [];
+    for (const ch of roster) {
+        const epgId = channelMap.get(ch.id);
+        if (epgId) {
+            const meta = epgChannels.get(epgId);
+            matched.push({ channel: ch.name, epg: meta ? meta.name : epgId });
+        } else {
+            const r = fuse.search(ch.name || '')[0];
+            unmatched.push({
+                channel: ch.name,
+                bestCandidate: r ? r.item.name : null,
+                score: r ? Number(r.score.toFixed(2)) : null,
+            });
+        }
+    }
+    return {
+        epgChannelCount: epgChannels.size,
+        matchedCount: matched.length,
+        unmatchedCount: unmatched.length,
+        matched: matched.sort((a, b) => a.channel.localeCompare(b.channel)),
+        unmatched: unmatched.sort((a, b) => a.channel.localeCompare(b.channel)),
+        epgNames: epgEntries.map((e) => e.name).sort((a, b) => a.localeCompare(b)),
+    };
+}
+
+module.exports = { buildChannelMap, getEPGChannelId, getMatchCount, matchedEpgIds, getEPGOffset, getMatchReport };

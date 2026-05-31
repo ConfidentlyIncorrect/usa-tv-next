@@ -113,6 +113,21 @@ async function main() {
                 },
             }));
         }
+        // EPG match diagnostic — shows what the active guide source provides vs the roster, so
+        // name overrides can be tuned (especially after switching to Schedules Direct). Read-only,
+        // channel names only (not sensitive). ?full=1 includes the entire EPG name list.
+        if (req.url && req.url.split('?')[0] === '/debug/epg') {
+            res.setHeader('Content-Type', 'application/json');
+            try {
+                const full = /[?&]full=1/.test(req.url);
+                const report = channelMap.getMatchReport();
+                if (!full) report.epgNames = report.epgNames.slice(0, 60); // sample unless ?full=1
+                return res.end(JSON.stringify({ epg: epg.getStatus(), report }, null, 2));
+            } catch (e) {
+                res.statusCode = 500;
+                return res.end(JSON.stringify({ error: e.message }));
+            }
+        }
         router(req, res, () => {
             res.statusCode = 404;
             res.end();
