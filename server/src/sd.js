@@ -84,6 +84,24 @@ async function _auth(force = false) {
 }
 
 /**
+ * Read the account's lineups, tolerating SD's quirk of returning HTTP 400 code 4102
+ * ("no lineups added") instead of an empty list for a fresh account (JSON-Service issue #62).
+ * Returns { lineups, changesRemaining } and treats the no-lineups 400 as simply empty.
+ */
+async function _getAccountLineups() {
+    try {
+        const r = await _api('GET', '/lineups');
+        return {
+            lineups: (r && r.lineups) || [],
+            changesRemaining: (r && typeof r.changesRemaining === 'number') ? r.changesRemaining : null,
+        };
+    } catch (e) {
+        if (/code 4102|NO_LINEUPS/i.test(e.message || '')) return { lineups: [], changesRemaining: null };
+        throw e;
+    }
+}
+
+/**
  * Auto-provision a lineup from SD_ZIP via the SD JSON API so the user never has to curate one.
  * Idempotent + safe: only adds when the account has no lineups (unless SD_FORCE_LINEUP), never
  * removes, respects the daily lineup-change limit, and swallows its own errors (best-effort —
@@ -94,8 +112,8 @@ async function _auth(force = false) {
 async function ensureLineup() {
     if (!cfg.SD_ZIP) return; // nothing to auto-provision with — user adds lineups manually
     try {
-        const cur = await _api('GET', '/lineups');
-        const existing = (cur && cur.lineups) || [];
+        const cur = await _getAccountLineups();
+        const existing = cur.lineups;
         if (existing.length > 0 && !cfg.SD_FORCE_LINEUP) return; // already provisioned
 
         const heads = await _api('GET',
@@ -125,7 +143,7 @@ async function ensureLineup() {
         const pick = candidates.find((c) => !have.has(c.lineup));
         if (!pick) return; // best candidate already added
 
-        const remaining = (cur && typeof cur.changesRemaining === 'number') ? cur.changesRemaining : null;
+        const remaining = cur.changesRemaining;
         if (remaining !== null && remaining <= 0) {
             log.warn('SD lineup auto-add skipped: no lineup changes remaining today. Add one manually if needed.');
             return;
@@ -143,8 +161,7 @@ async function ensureLineup() {
 async function loadStations() {
     await _auth();
     await ensureLineup();
-    const lineupsResp = await _api('GET', '/lineups');
-    const lineups = (lineupsResp && lineupsResp.lineups) || [];
+    const lineups = (await _getAccountLineups()).lineups;
     if (!lineups.length) {
         log.warn('Schedules Direct account has no lineups — set SD_ZIP to auto-add one, add one '
             + 'on the SD website, or unset SD_USERNAME to use epg.pw. Falling back for now.');
