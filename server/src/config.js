@@ -43,11 +43,16 @@ const STREAM_URL = (id) => `${GITHUB_RAW_BASE}/stream/tv/${id}.json`;
 // Comet, Buzzr, Court TV, MotorTrend, Vevo, FilmRise, …). Comma-separated; NOT lowercased
 // (filenames like US2/PLEX1 are case-sensitive). Set EPGSHARE_URLS='' to disable the 3rd tier.
 const EPG_URL = process.env.EPG_URL || 'https://epg.pw/xmltv/epg_US.xml';
+// Tier-3 feeds: epgshare01 US2 (broad US FAST/cable) + Matt Huisman's per-platform FAST guides
+// (i.mjh.nz: Samsung TV Plus / Plex / Pluto) which cover the niche FAST long tail SD + epg.pw
+// miss (XITE, AsianCrush, RetroCrush, Dark Matter, Midnight Pulp, Outside TV, Stadium, Hi-YAH!,
+// Comedy Dynamics, Wu Tang, …). All merged into one "es:" pool. Small (<7 MB gz each).
 const EPGSHARE_URLS = (process.env.EPGSHARE_URLS !== undefined
     ? process.env.EPGSHARE_URLS
     : 'https://epgshare01.online/epgshare01/epg_ripper_US2.xml.gz,'
-    + 'https://epgshare01.online/epgshare01/epg_ripper_PLEX1.xml.gz,'
-    + 'https://epgshare01.online/epgshare01/epg_ripper_DISTROTV1.xml.gz'
+    + 'https://i.mjh.nz/SamsungTVPlus/us.xml.gz,'
+    + 'https://i.mjh.nz/Plex/all.xml.gz,'
+    + 'https://i.mjh.nz/PlutoTV/us.xml.gz'
 ).split(',').map((s) => s.trim()).filter(Boolean);
 
 // --- Schedules Direct (PRIMARY EPG when configured) ------------------------
