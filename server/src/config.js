@@ -58,9 +58,12 @@ const SD_PASSWORD = process.env.SD_PASSWORD || '';
 const SD_BASE = (process.env.SD_BASE_URL || 'https://json.schedulesdirect.org/20141201').replace(/\/+$/, '');
 const SD_LINEUP = (process.env.SD_LINEUP || '').trim();
 const SD_DAYS = Math.max(1, Math.min(14, parseInt(process.env.SD_DAYS || '2', 10) || 2));
-const SD_ZIP = (process.env.SD_ZIP || '').trim();
-const SD_COUNTRY = (process.env.SD_COUNTRY || 'USA').trim();
-const SD_TRANSPORT = (process.env.SD_TRANSPORT || '').trim(); // '' = auto (prefer Satellite)
+// Defensively strip surrounding quotes/whitespace — compose `- SD_ZIP="80202"` passes the
+// quotes through literally, which would make SD's /headends reject the postalcode (HTTP 400).
+const _clean = (v) => (v || '').trim().replace(/^["']|["']$/g, '').trim();
+const SD_ZIP = _clean(process.env.SD_ZIP);
+const SD_COUNTRY = _clean(process.env.SD_COUNTRY) || 'USA';
+const SD_TRANSPORT = _clean(process.env.SD_TRANSPORT); // '' = auto (prefer Satellite)
 const SD_FORCE_LINEUP = process.env.SD_FORCE_LINEUP === '1'; // add the auto lineup even if some already exist
 
 // --- Provider policy (mirrors harvester/config.py) -------------------------

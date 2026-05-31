@@ -55,8 +55,13 @@ async function _api(method, path, body, useToken = true, _isRetry = false) {
                 await _auth(true);
                 return _api(method, path, body, useToken, true);
             }
-            const code = json && (json.code !== undefined ? json.code : json.response);
-            throw new Error(`${path} HTTP ${res.status}${code !== undefined ? ` (code ${code})` : ''}`);
+            // Surface SD's own code + message/response so 400s are self-explanatory
+            // (e.g. "code 2004: The COUNTRY parameter must be ISO-3166-1 alpha-3.").
+            const code = json && json.code;
+            const detail = json && (json.message || json.response);
+            throw new Error(`${path} HTTP ${res.status}`
+                + (code !== undefined && code !== null ? ` code ${code}` : '')
+                + (detail ? `: ${detail}` : (text ? `: ${text.slice(0, 200)}` : '')));
         }
         // SD signals app-level failures with a non-zero `code` even on HTTP 200.
         if (json && json.code !== undefined && json.code !== 0) {
@@ -101,6 +106,8 @@ async function ensureLineup() {
                 if (lu.lineup) candidates.push({ lineup: lu.lineup, name: lu.name || '', transport: h.transport || '' });
             }
         }
+        log.info(`SD /headends for ${cfg.SD_COUNTRY} ${cfg.SD_ZIP}: ${candidates.length} lineup candidate(s)`
+            + (candidates.length ? ` [${candidates.slice(0, 6).map((c) => `${c.lineup}/${c.transport}`).join(', ')}]` : ''));
         if (!candidates.length) {
             log.warn(`No SD headends/lineups found for ${cfg.SD_COUNTRY} ${cfg.SD_ZIP}; add a lineup manually on the SD site.`);
             return;
