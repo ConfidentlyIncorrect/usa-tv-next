@@ -71,6 +71,11 @@ function isBlocked(url) {
 const FORCE_PROXY_HOSTS = ['tvpass.org', 'thetvapp.to', 'dai.google.com', 'a.run.app',
     'fast.nbcuni.com', 'amagi.tv', 'uplynk.com', 'mediatailor'];
 
+// SSAI ad-stitch markers that live in the URL (not the host): XUMO's per-request ad-session feeds
+// are served from generic CloudFront hosts but carry "?ads.xumo_channelId=" — played directly they
+// mint a fresh ad session and "black then exit", so pin them through the proxy too (one stable IP).
+const FORCE_PROXY_URL_MARKERS = ['ads.xumo_channelid'];
+
 // A "fragile" upstream the native player often can't play directly: cleartext HTTP,
 // raw-IP host, odd port, a cors-proxy, a URL shortener, a redirect/tokenized provider,
 // or an operator-forced host. These are routed through our proxy; clean direct-HTTPS
@@ -88,12 +93,41 @@ function isFragile(url) {
             || host.includes('proxy')
             || host.includes('jmp2')
             || FORCE_PROXY_HOSTS.some((h) => host.endsWith(h) || host.includes(h))
+            // SSAI markers in the URL/query (e.g. XUMO ads.xumo_channelId on plain CloudFront hosts)
+            || FORCE_PROXY_URL_MARKERS.some((m) => lo.includes(m))
             // operator-forced hosts (alive-but-flaky SSAI feeds, e.g. xumo/nbcuni)
             || cfg.PROXY_FORCE_HOSTS.some((h) => lo.includes(h))
         );
     } catch {
         return false;
     }
+}
+
+// Quality rank from the stream's display name "{Channel} ({FHD|HD|SD|Audio})": lower = better.
+// Unknown-quality video sits between SD and Audio; Audio is always last.
+function qualityRank(name) {
+    const m = (name || '').match(/\((FHD|HD|SD|Audio)\)/i);
+    if (!m) return 3;
+    const q = m[1].toUpperCase();
+    return q === 'FHD' ? 0 : q === 'HD' ? 1 : q === 'SD' ? 2 : 4;
+}
+
+function isPriorityHost(url) {
+    const u = (url || '').toLowerCase();
+    return cfg.STREAM_PRIORITY_HOSTS.some((h) => u.includes(h));
+}
+
+// Quality-first ordering (STREAM_SORT_QUALITY): primary = quality, tiebreaker = priority provider
+// (tvpass) within the same quality tier, final tiebreaker = the harvester's original order (stable).
+// Surfaces the best-quality feed — usually the one carrying WebVTT subtitles — as the default.
+function orderStreams(streams) {
+    if (!cfg.STREAM_SORT_QUALITY) return streams;
+    return streams
+        .map((s, i) => ({ s, i }))
+        .sort((a, b) => (qualityRank(a.s.name) - qualityRank(b.s.name))
+            || ((isPriorityHost(a.s.url) ? 0 : 1) - (isPriorityHost(b.s.url) ? 0 : 1))
+            || (a.i - b.i))
+        .map((x) => x.s);
 }
 
 function normalizeStream(s) {
@@ -126,14 +160,14 @@ async function handleStream({ type, id }) {
     try {
         const raw = await data.getStreams(id);
         const valid = (raw || []).filter((s) => s && s.url);
-        // Drop blocklisted providers (e.g. Pluto TV — no longer accessible).
-        // PRESERVE the data file order: the harvester's regional resolver already orders
-        // each channel's feeds (local/Denver > National > ... ; video before audio), so
-        // re-sorting here by provider would undo that. Only fall back to provider order
-        // if a stream somehow lacks the harvester ordering (no-op for normal data).
+        // Drop blocklisted providers (e.g. Pluto TV — no longer accessible), then order by
+        // QUALITY (FHD>HD>SD>Audio) with the priority provider (tvpass) as a same-tier tiebreaker
+        // and the harvester's original (regional) order kept as the final, stable tiebreaker. This
+        // makes the best-quality feed — usually the one carrying WebVTT subtitles — the default.
+        // Set STREAM_SORT=data to keep the raw harvester order instead (orderStreams is then a no-op).
         const allowed = valid.filter((s) => !isBlocked(s.url));
         const dropped = valid.length - allowed.length;
-        const streams = allowed.map(normalizeStream);
+        const streams = orderStreams(allowed).map(normalizeStream);
 
         // Attach the channel's guide to EVERY stream so the fork's left panel is formatted
         // CONSISTENTLY for ALL channels — same `epg` slot every time, only the data inside

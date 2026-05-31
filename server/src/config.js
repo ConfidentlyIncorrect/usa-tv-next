@@ -136,6 +136,13 @@ const STREAM_FETCH_TTL_MS = hours('STREAM_FETCH_TTL_HOURS', 6);
 // cacheMaxAge (seconds) returned to Stremio on catalog/meta/stream responses.
 const RESPONSE_CACHE_SECS = parseInt(process.env.RESPONSE_CACHE_SECS || '300', 10);
 
+// Order each channel's streams by QUALITY (FHD > HD > SD > Audio), with the priority provider
+// (tvpass) preferred as a same-quality tiebreaker and the harvester's original order kept as the
+// final tiebreaker (stable). This surfaces the best-quality feed — which is also the one that
+// usually carries WebVTT subtitles — as the default/auto-play stream. Set STREAM_SORT=data to
+// keep the raw harvester (provider/regional) order instead.
+const STREAM_SORT_QUALITY = (process.env.STREAM_SORT || 'quality').toLowerCase() !== 'data';
+
 // Timeout (ms) for small JSON fetches (roster, per-channel streams).
 const FETCH_TIMEOUT_MS = parseInt(process.env.FETCH_TIMEOUT_MS || '15000', 10);
 
@@ -169,6 +176,7 @@ const config = {
     RESPONSE_CACHE_SECS,
     FETCH_TIMEOUT_MS,
     EPG_FETCH_TIMEOUT_MS,
+    STREAM_SORT_QUALITY,
     STREAM_BLOCKLIST_HOSTS,
     STREAM_PRIORITY_HOSTS,
     PROXY_PUBLIC_URL,
