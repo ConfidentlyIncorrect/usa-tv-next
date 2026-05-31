@@ -401,7 +401,7 @@ function getDaySchedule(epgChannelId, offsetHours = 0) {
  * window reaches ~18h forward). Times are shifted by +offsetHours so the client compares against
  * its real clock. Returns [{ s:ISO, e:ISO|null, t:title }] from now-1h to now+18h, capped.
  */
-function getGuideWindow(epgChannelId, offsetHours = 0, maxEntries = 48) {
+function getGuideWindow(epgChannelId, offsetHours = 0, maxEntries = 48, withDesc = false) {
     const progs = programmes.get(epgChannelId);
     if (!progs || !progs.length) return [];
     const shiftMs = (offsetHours || 0) * 3600000;
@@ -414,7 +414,9 @@ function getGuideWindow(epgChannelId, offsetHours = 0, maxEntries = 48) {
         const s = p.start.getTime() + shiftMs;               // shift feed time -> client wall clock
         const e = p.stop ? p.stop.getTime() + shiftMs : null;
         if ((e || s) < from || s > to) continue;             // outside the window
-        out.push({ s: new Date(s).toISOString(), e: e ? new Date(e).toISOString() : null, t: p.title || '' });
+        const entry = { s: new Date(s).toISOString(), e: e ? new Date(e).toISOString() : null, t: p.title || '' };
+        if (withDesc && p.desc) entry.d = p.desc;            // detail screen wants synopsis; stream panel doesn't
+        out.push(entry);
         if (out.length >= maxEntries) break;
     }
     return out;

@@ -50,6 +50,11 @@ async function handleMeta({ type, id }) {
         const now = epgId ? epg.getNowPlaying(epgId, off) : null;
         const next = epgId ? epg.getUpNext(epgId, off) : null;
         const schedule = epgId ? epg.getDaySchedule(epgId, off) : [];
+        // Absolute-time window (WITH descriptions) so the NuvioTV fork can recompute the WHOLE
+        // detail block — NOW PLAYING / UP NEXT / today's schedule — on a ticking clock with ONE
+        // consistent formatter, identical regardless of the source feed (SD / epg.pw / epgshare).
+        // The static `description` below remains the fallback for Stremio / older clients.
+        const epgSchedule = epgId ? epg.getGuideWindow(epgId, off, 48, true) : [];
 
         const descLines = [];
         if (now) {
@@ -107,6 +112,8 @@ async function handleMeta({ type, id }) {
                 overview: description,
                 genres: ch.genres || [ch.genre].filter(Boolean),
                 releaseInfo: now ? now.title : undefined,
+                // Live, source-independent guide data for the NuvioTV fork's detail screen.
+                ...(epgSchedule.length ? { epgSchedule } : {}),
             },
             cacheMaxAge: cfg.RESPONSE_CACHE_SECS,
         };
