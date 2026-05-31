@@ -10,8 +10,38 @@
 
 const cfg = require('./config');
 const data = require('./data');
+const epg = require('./epg');
+const channelMap = require('./channelMap');
 const log = require('./log')('StreamHandler');
 const proxy = require('./proxy');
+
+// --- EPG guide string (for the NuvioTV custom fork's focus-reactive left panel) ------------
+// We attach the CHANNEL's now/next to each stream as a non-standard `epg` field. The fork's
+// stream-selection screen shows the focused stream's `epg` in its left panel (falling back to
+// `description`); standard Stremio clients ignore the unknown field. We use one channel-level
+// guide for all of a channel's streams (they share a feed), so the stream/provider list is
+// untouched. Read-only against in-memory EPG — never forces a fetch on the playback path.
+function formatTime(date) {
+    if (!date) return '';
+    return date.toLocaleTimeString('en-US', {
+        hour: 'numeric', minute: '2-digit', hour12: true, timeZone: cfg.TZ,
+    });
+}
+
+function buildStreamGuide(now, next) {
+    const lines = [];
+    if (now) {
+        const range = now.stop ? `${formatTime(now.start)} - ${formatTime(now.stop)}` : formatTime(now.start);
+        lines.push(`▶ NOW · ${range}`);
+        if (now.title) lines.push(now.title);
+    }
+    if (next) {
+        if (lines.length) lines.push('');
+        lines.push(`⏭ NEXT · ${formatTime(next.start)}`);
+        if (next.title) lines.push(next.title);
+    }
+    return lines.join('\n');
+}
 
 // --- provider policy (blocklist + priority) --------------------------------
 
@@ -104,6 +134,17 @@ async function handleStream({ type, id }) {
         const allowed = valid.filter((s) => !isBlocked(s.url));
         const dropped = valid.length - allowed.length;
         const streams = allowed.map(normalizeStream);
+
+        // Attach the channel's current guide to every stream (for the fork's left panel).
+        // Read-only against whatever EPG is already in memory; if unmatched/empty, we omit the
+        // field and the panel gracefully falls back to the stream description.
+        const epgId = channelMap.getEPGChannelId(id);
+        if (epgId) {
+            const off = channelMap.getEPGOffset(id);
+            const guide = buildStreamGuide(epg.getNowPlaying(epgId, off), epg.getUpNext(epgId, off));
+            if (guide) streams.forEach((s) => { s.epg = guide; });
+        }
+
         log.debug(`Returning ${streams.length} stream(s) for ${id}`
             + (dropped ? ` (dropped ${dropped} blocklisted)` : '')
             + ` [top: ${streams[0] ? streams[0].name : 'none'}]`);
