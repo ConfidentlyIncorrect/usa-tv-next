@@ -176,6 +176,40 @@ const MANUAL_OVERRIDES = {
     'fuse': 'Fuse HD',
 };
 
+// SD-specific exact-name overrides: roster name (lowercased+trimmed) -> EXACT Schedules Direct
+// station name. Highest priority, and binds ONLY when that exact name exists in the active EPG
+// source — so it precisely fixes SD mismatches yet is a no-op on the epg.pw fallback (which keeps
+// using MANUAL_OVERRIDES). Broadcast nets map to the LOCAL (Denver / SD_ZIP DMA) affiliate
+// callsigns since SD has no "national" broadcast feed and the local affiliate matches the TZ —
+// change these to your market's callsigns if SD_ZIP is not a Denver ZIP.
+const SD_OVERRIDES = {
+    // Broadcast affiliates (Denver DMA)
+    'abc': 'KMGH', 'cbs': 'KCNC', 'nbc': 'KUSA', 'fox': 'KDVR', 'cw': 'KWGN', 'pbs': 'KRMA',
+    // Cable nets whose SD name differs, or that fuzzy mis-bound to the wrong station
+    'bet her': 'BET Her',
+    'e! entertainment television': 'E! Entertainment Television',
+    'espn 2': 'ESPN2',
+    'espn deportes': 'ESPN Deportes',
+    'espnews': 'ESPNEWS',
+    'fx movie channel': 'FX Movie Channel HD',
+    'fxx': 'FXX',
+    'hbo comedy': 'HBO Comedy HD',
+    'lifetime movie network': 'LMN',
+    'metv': 'Me TV Network',
+    'mtv': 'MTV - Music Television',
+    'msnbc': 'MS NOW',                 // MSNBC rebranded to "MS NOW"
+    'oprah winfrey network (own)': 'Oprah Winfrey Network',
+    'showtime': 'Paramount+ with Showtime',
+    'showtime 2': 'SHO 2',
+    'starz cinema': 'Starz Cinema HD',
+    'starz comedy': 'Starz Comedy HD',
+    'cheddar news': 'Cheddar',
+    // Regional sports networks (national/out-of-market feeds in SD)
+    'yes network': 'YES Network National Feed HD',
+    'nesn': 'New England Sports Network National HD',
+    'chicago sports network': 'CHSN Blackout',
+};
+
 /**
  * Rebuild the ustvId -> epgId map from the current roster (data.getRoster()) and the
  * current EPG channel list (epg.getEPGChannels()). No-op if either side is empty.
@@ -203,6 +237,14 @@ function buildChannelMap() {
     for (const ch of ustvChannels) {
         const ustvName = (ch.name || '').trim();
         const ustvNameLower = ustvName.toLowerCase().trim();
+
+        // 0. Schedules Direct exact-name override (highest priority; precise pin). Binds only
+        //    when that exact SD name exists, so it's a no-op on the epg.pw fallback.
+        if (SD_OVERRIDES[ustvNameLower]) {
+            const t = SD_OVERRIDES[ustvNameLower].toLowerCase();
+            const hit = epgEntries.find((e) => e.nameLower === t);
+            if (hit) { newMap.set(ch.id, hit.id); matched++; manual++; continue; }
+        }
 
         // 1. Manual override
         if (MANUAL_OVERRIDES[ustvNameLower]) {
