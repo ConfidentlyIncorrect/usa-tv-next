@@ -204,10 +204,14 @@ const SD_OVERRIDES = {
     'starz cinema': 'Starz Cinema HD',
     'starz comedy': 'Starz Comedy HD',
     'cheddar news': 'Cheddar',
+    'hgtv': 'Home & Garden Television',   // acronym vs full SD name
+    'accuweather now': 'AccuWeather HD',
+    'cine sony': 'Sony Cine',
     // Regional sports networks (national/out-of-market feeds in SD)
     'yes network': 'YES Network National Feed HD',
     'nesn': 'New England Sports Network National HD',
     'chicago sports network': 'CHSN Blackout',
+    'fanduel detroit': 'FanDuel Sports Network Detroit HD- Out of Market',
 };
 
 /**
