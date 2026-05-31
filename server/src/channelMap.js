@@ -213,6 +213,11 @@ const SD_OVERRIDES = {
     'chicago sports network': 'CHSN Blackout',
     'fanduel detroit': 'FanDuel Sports Network Detroit HD- Out of Market',
     'law & crime': 'Law and Crime',   // epgshare01 US2 spells it "and" (exact pin beats fuzzy)
+    // "US"/"East" suffix variants the source lists without the suffix
+    'universal crime east': 'Universal Crime',
+    'nosey us': 'Nosey',
+    'curiosity now us': 'Curiosity NOW',
+    'yta tv': 'YTA Youtoo America',
 };
 
 /**
@@ -220,28 +225,35 @@ const SD_OVERRIDES = {
  * current EPG channel list (epg.getEPGChannels()). No-op if either side is empty.
  * After a successful build, persists the EPG cache for the matched channels.
  */
-// Match one roster channel against ONE source's entries. Order: SD exact override -> manual
-// (epg.pw-tuned) override -> exact -> strict fuzzy. Returns the matched (prefixed) epg id or null.
-function matchChannel(name, nameLower, entries, fuse) {
+// STRONG match against ONE source's entries: SD exact override -> manual (epg.pw-tuned) override
+// substring -> exact name. No fuzzy. Returns the matched (prefixed) epg id or null. Run across ALL
+// tiers before any fuzzy, so an exact/override hit in a lower tier beats a fuzzy hit in a higher
+// tier (e.g. "Movies!" exact in epg.pw must win over an SD fuzzy "MovieSphere Gold").
+function matchStrong(name, nameLower, entries) {
     if (entries.length === 0) return null;
-    // SD exact-name override (resolves only against the SD entry set; no-op on the epg.pw set)
     if (SD_OVERRIDES[nameLower]) {
         const t = SD_OVERRIDES[nameLower].toLowerCase();
         const hit = entries.find((e) => e.nameLower === t);
         if (hit) return hit.id;
     }
-    // Manual (epg.pw-tuned) override: substring either direction, then a narrow fuzzy
     if (MANUAL_OVERRIDES[nameLower]) {
         const target = MANUAL_OVERRIDES[nameLower].toLowerCase();
         const found = entries.find((e) => e.nameLower.includes(target) || target.includes(e.nameLower));
         if (found) return found.id;
+    }
+    const exact = entries.find((e) => e.nameLower === nameLower);
+    if (exact) return exact.id;
+    return null;
+}
+
+// FUZZY match against ONE source's entries (only after strong matching fails in every tier):
+// the manual-override fuzzy fallback, then a strict plain fuzzy. A wrong match is worse than none.
+function matchFuzzy(name, nameLower, entries, fuse) {
+    if (entries.length === 0) return null;
+    if (MANUAL_OVERRIDES[nameLower]) {
         const fr = fuse.search(MANUAL_OVERRIDES[nameLower]);
         if (fr.length > 0 && fr[0].score < 0.35) return fr[0].item.id;
     }
-    // Exact (case-insensitive)
-    const exact = entries.find((e) => e.nameLower === nameLower);
-    if (exact) return exact.id;
-    // Fuzzy (strict — a wrong match is worse than none)
     const r = fuse.search(name);
     if (r.length > 0 && r[0].score < 0.30) return r[0].item.id;
     return null;
@@ -280,14 +292,21 @@ function buildChannelMap() {
     for (const ch of ustvChannels) {
         const ustvName = (ch.name || '').trim();
         const ustvNameLower = ustvName.toLowerCase().trim();
-        let bound = false;
-        for (const p of ORDER) { // higher-priority source wins
-            const entries = groups.get(p);
-            if (!entries.length) continue;
-            const id = matchChannel(ustvName, ustvNameLower, entries, fuses.get(p));
-            if (id) { newMap.set(ch.id, id); counts[p]++; bound = true; break; }
+        let id = null;
+        let src = null;
+        // Phase A: STRONG (override/exact) matches, in tier-priority order.
+        for (const p of ORDER) {
+            id = matchStrong(ustvName, ustvNameLower, groups.get(p));
+            if (id) { src = p; break; }
         }
-        if (!bound) missed++;
+        // Phase B: only if nothing strong matched anywhere, fall back to FUZZY in tier order.
+        if (!id) {
+            for (const p of ORDER) {
+                id = matchFuzzy(ustvName, ustvNameLower, groups.get(p), fuses.get(p));
+                if (id) { src = p; break; }
+            }
+        }
+        if (id) { newMap.set(ch.id, id); counts[src]++; } else missed++;
     }
 
     channelMap = newMap;
