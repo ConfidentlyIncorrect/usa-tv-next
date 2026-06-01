@@ -48,11 +48,12 @@ function buildDescription(ch) {
     return lines.join('\n');
 }
 
+// Catalog/grid title stays the clean channel name. The now-playing is NOT baked into the title
+// here because the catalog is a bulk, client-cached response — a baked title goes stale against the
+// always-fresh detail screen. The live NOW/NEXT is carried per-item as `epgSchedule` (below) and the
+// NuvioTV fork recomputes the hover blurb from it on a clock, so the grid stays current.
 function buildCatalogName(ch) {
-    const epgId = channelMap.getEPGChannelId(ch.id);
-    if (!epgId) return ch.name;
-    const now = epg.getNowPlaying(epgId, channelMap.getEPGOffset(ch.id));
-    return now ? `${ch.name} - ${now.title}` : ch.name;
+    return ch.name;
 }
 
 async function handleCatalog({ type, id, extra }) {
@@ -91,19 +92,29 @@ async function handleCatalog({ type, id, extra }) {
         const skip = (extra && extra.skip) ? parseInt(extra.skip, 10) : 0;
         const page = filtered.slice(skip, skip + PAGE_SIZE);
 
-        const metas = page.map((ch) => ({
-            id: ch.id,
-            type: 'tv',
-            name: buildCatalogName(ch),
-            poster: ch.poster || ch.logo || FALLBACK_POSTER,
-            posterShape: 'landscape',
-            // NuvioTV (verified: MetaPreviewDto.landscapePoster) uses this for cards.
-            landscapePoster: ch.poster || ch.logo || FALLBACK_POSTER,
-            description: buildDescription(ch),
-            genres: ch.genres || [ch.genre].filter(Boolean),
-            logo: ch.logo || '',
-            background: ch.poster || ch.logo || FALLBACK_BACKGROUND,
-        }));
+        const metas = page.map((ch) => {
+            const epgId = channelMap.getEPGChannelId(ch.id);
+            const off = epgId ? channelMap.getEPGOffset(ch.id) : 0;
+            // Compact absolute-time window (no synopsis, capped small) so the NuvioTV fork's home
+            // hero recomputes the focused channel's NOW/NEXT live on a clock — the grid no longer
+            // goes stale against the detail screen. `description` stays as the baked fallback for
+            // clients that don't read epgSchedule.
+            const sched = epgId ? epg.getGuideWindow(epgId, off, 16, false) : [];
+            return {
+                id: ch.id,
+                type: 'tv',
+                name: buildCatalogName(ch),
+                poster: ch.poster || ch.logo || FALLBACK_POSTER,
+                posterShape: 'landscape',
+                // NuvioTV (verified: MetaPreviewDto.landscapePoster) uses this for cards.
+                landscapePoster: ch.poster || ch.logo || FALLBACK_POSTER,
+                description: buildDescription(ch),
+                genres: ch.genres || [ch.genre].filter(Boolean),
+                logo: ch.logo || '',
+                background: ch.poster || ch.logo || FALLBACK_BACKGROUND,
+                ...(sched.length ? { epgSchedule: sched } : {}),
+            };
+        });
 
         log.debug(`Returning ${metas.length} metas (skip=${skip}, total filtered=${filtered.length})`);
         return { metas, cacheMaxAge: cfg.RESPONSE_CACHE_SECS };
