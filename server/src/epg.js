@@ -52,8 +52,13 @@ async function downloadEpg(url = cfg.EPG_URL, attempts = 3) {
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), cfg.EPG_FETCH_TIMEOUT_MS);
         try {
-            const response = await fetch(url, { signal: controller.signal });
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const response = await fetch(url, { signal: controller.signal, redirect: 'follow' });
+            if (!response.ok) {
+                // Include the FINAL url so a GitHub-raw 404/429 (the i.mjh.nz redirect target) is
+                // visible — that's the usual cause of several mjh feeds failing at once.
+                const via = response.url && response.url !== url ? ` (via ${response.url})` : '';
+                throw new Error(`HTTP ${response.status} ${response.statusText || ''}`.trim() + via);
+            }
             const contentType = response.headers.get('content-type') || '';
             const buf = Buffer.from(await response.arrayBuffer());
             if (url.endsWith('.gz') || contentType.includes('gzip')) {
@@ -61,9 +66,16 @@ async function downloadEpg(url = cfg.EPG_URL, attempts = 3) {
             }
             return buf.toString('utf-8');
         } catch (err) {
-            lastErr = err;
+            // Normalize so the skip log is specific: timeout vs HTTP status vs network (DNS/reset).
+            if (err && err.name === 'AbortError') {
+                lastErr = new Error(`timeout after ${Math.round(cfg.EPG_FETCH_TIMEOUT_MS / 1000)}s`);
+            } else if (err && err.cause && (err.cause.code || err.cause.message)) {
+                lastErr = new Error(`${err.message} (${err.cause.code || err.cause.message})`);
+            } else {
+                lastErr = err;
+            }
             if (i < attempts - 1) {
-                log.debug(`EPG download attempt ${i + 1}/${attempts} failed for ${url.split('/').pop()}: ${err.message}; retrying`);
+                log.debug(`EPG download attempt ${i + 1}/${attempts} failed for ${url.split('/').pop()}: ${lastErr.message}; retrying`);
                 await new Promise((resolve) => setTimeout(resolve, 1500 * (i + 1)));
             }
         } finally {
@@ -251,10 +263,16 @@ async function fetchEPG() {
         // For each XMLTV source: download its feed(s) and parse channel defs. Keep the raw text
         // (per feed) so we can stream-parse programmes for only the matched channels in phase 4.
         const xmlSources = []; // { prefix, texts:[string], channels: Map<rawId,{name,icon}> }
+        let _feedIdx = 0;
         for (const src of xmltvSources()) {
             const texts = [];
             const chans = new Map();
             for (const url of src.urls) {
+                // Space successive feed fetches a little. The i.mjh.nz feeds all redirect to GitHub
+                // raw; firing them back-to-back from one IP can trip GitHub's burst rate limit, which
+                // surfaces as several feeds 404/429-ing at once. 800ms between fetches is negligible
+                // on a 6-hour refresh and keeps us under the burst threshold.
+                if (_feedIdx++ > 0) await new Promise((resolve) => setTimeout(resolve, 800));
                 try {
                     const t = await log.timed(`EPG download [${src.prefix}] ${url.split('/').pop()}`, () => downloadEpg(url));
                     texts.push(t);
