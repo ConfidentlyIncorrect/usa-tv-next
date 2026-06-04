@@ -43,21 +43,34 @@ function parseDateTime(str) {
     return isNaN(date.getTime()) ? null : date;
 }
 
-async function downloadEpg(url = cfg.EPG_URL) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), cfg.EPG_FETCH_TIMEOUT_MS);
-    try {
-        const response = await fetch(url, { signal: controller.signal });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const contentType = response.headers.get('content-type') || '';
-        const buf = Buffer.from(await response.arrayBuffer());
-        if (url.endsWith('.gz') || contentType.includes('gzip')) {
-            return gunzipSync(buf).toString('utf-8');
+// The i.mjh.nz feeds 302-redirect to GitHub raw, which intermittently 404s/429s under load. A
+// single failed attempt would drop that feed for the whole refresh cycle (6h), so retry a couple
+// times with backoff before giving up — transient blips then self-heal within the same refresh.
+async function downloadEpg(url = cfg.EPG_URL, attempts = 3) {
+    let lastErr;
+    for (let i = 0; i < attempts; i++) {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), cfg.EPG_FETCH_TIMEOUT_MS);
+        try {
+            const response = await fetch(url, { signal: controller.signal });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const contentType = response.headers.get('content-type') || '';
+            const buf = Buffer.from(await response.arrayBuffer());
+            if (url.endsWith('.gz') || contentType.includes('gzip')) {
+                return gunzipSync(buf).toString('utf-8');
+            }
+            return buf.toString('utf-8');
+        } catch (err) {
+            lastErr = err;
+            if (i < attempts - 1) {
+                log.debug(`EPG download attempt ${i + 1}/${attempts} failed for ${url.split('/').pop()}: ${err.message}; retrying`);
+                await new Promise((resolve) => setTimeout(resolve, 1500 * (i + 1)));
+            }
+        } finally {
+            clearTimeout(timer);
         }
-        return buf.toString('utf-8');
-    } finally {
-        clearTimeout(timer);
     }
+    throw lastErr;
 }
 
 // --- streaming XMLTV scanner (dependency-free, low-memory) ------------------
