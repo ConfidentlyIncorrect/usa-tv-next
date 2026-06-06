@@ -84,13 +84,16 @@ const SD_TRANSPORT = _clean(process.env.SD_TRANSPORT); // '' = auto (prefer Sate
 const SD_FORCE_LINEUP = process.env.SD_FORCE_LINEUP === '1'; // add the auto lineup even if some already exist
 
 // --- Provider policy (mirrors harvester/config.py) -------------------------
-// Streams whose URL contains a blocklisted host are never served (Pluto TV is no
-// longer accessible). Streams from priority hosts are sorted to the top of each
-// channel's list (tvpass.org is the most stable provider). Comma-separated env
-// overrides; matching is case-insensitive substring on the URL.
+// Streams whose URL contains a blocklisted host are never served. Pluto TV is gone, and as of
+// this build tvpass.org / thetvapp.to (its tokenized CDN) are offline — blocklisting them stops
+// the addon from handing players dead URLs (so channels that still have another provider serve
+// that one cleanly, and tvpass-only channels return empty instead of buffering forever). If tvpass
+// comes back, override with STREAM_BLOCKLIST_HOSTS=pluto.tv (env). Matching is case-insensitive
+// substring on the URL. STREAM_PRIORITY_HOSTS is now moot for tvpass (blocked) — quality-first
+// ordering (STREAM_SORT) governs.
 const splitList = (v, def) =>
     (v || def).split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
-const STREAM_BLOCKLIST_HOSTS = splitList(process.env.STREAM_BLOCKLIST_HOSTS, 'pluto.tv');
+const STREAM_BLOCKLIST_HOSTS = splitList(process.env.STREAM_BLOCKLIST_HOSTS, 'pluto.tv,tvpass.org,thetvapp.to');
 const STREAM_PRIORITY_HOSTS = splitList(process.env.STREAM_PRIORITY_HOSTS, 'tvpass.org');
 
 // --- Stream proxy (fixes fragile HTTP/IP/header-gated feeds) ----------------
