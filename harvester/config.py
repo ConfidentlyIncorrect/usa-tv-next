@@ -20,17 +20,18 @@ USER_AGENTS = [
 
 # Any stream URL containing one of these substrings is dropped at inject time and
 # purged by `harvester clean`. Pluto TV's stitched endpoints are no longer
-# accessible, so we block the whole pluto.tv domain.
+# accessible. tvpass.org (formerly the primary provider) is now offline too, along
+# with its tokenized CDN thetvapp.to — block both so `clean` strips the dead streams.
 BLOCKLIST_URL_SUBSTRINGS = [
     "pluto.tv",
+    "tvpass.org",
+    "thetvapp.to",
 ]
 
-# Ordered provider preference (earlier = higher priority). Streams are sorted so
-# the most stable providers appear first in each channel's stream list. tvpass.org
-# is the most stable/accessible provider, so it leads.
-PROVIDER_PRIORITY = [
-    "tvpass.org",
-]
+# Ordered provider preference (earlier = higher priority). With tvpass gone, there's
+# no single "most stable" provider to lead with; the server now orders by quality
+# (STREAM_SORT). Left empty until/unless a new primary provider is adopted.
+PROVIDER_PRIORITY = []
 
 
 def is_blocked(url: str) -> bool:
