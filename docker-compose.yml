@@ -38,6 +38,12 @@ services:
       # (behind Tailscale Funnel / a reverse proxy it needs nothing). Force an explicit
       # base with PROXY_PUBLIC_URL, or turn it off with PROXY_DISABLE=1.
       # - PROXY_PUBLIC_URL=https://tv.example.com
+      # SPLIT-TUNNEL FOR DADDYLIVE: DaddyLive's premium embed + CDN origins drop datacenter/VPS
+      # egress IPs (you'll see `dlhd ... cannot reach <host>: CONNECT_TIMEOUT` even though dlhd.pk
+      # itself works). A VPN exit fixes it — but route ONLY the DaddyLive fetches through it, not
+      # the whole addon. Uncomment the `gluetun` sidecar below + this line; everything else (EPG,
+      # GitHub, iptv-org, Tubi, tvpass, …) keeps egressing directly.
+      # - DLHD_OUTBOUND_PROXY=http://gluetun:8888
       # For a turnkey Tailscale Funnel deployment, use docker-compose.funnel.yml instead.
       # Set to "debug" for verbose per-request routing / cache / fetch logging.
       - LOG_LEVEL=info
@@ -57,6 +63,32 @@ services:
       resources:
         limits:
           memory: 4g
+
+  # ── DaddyLive split-tunnel VPN sidecar (optional) ─────────────────────────────────────────
+  # Routes ONLY DaddyLive traffic out through a VPN, via gluetun's built-in HTTP proxy on :8888.
+  # The addon reaches it as http://gluetun:8888 (set DLHD_OUTBOUND_PROXY above). gluetun supports
+  # WireGuard + OpenVPN and most providers — fill in your provider/creds. Docs: github.com/qdm12/gluetun
+  # gluetun:
+  #   image: qmcgaw/gluetun
+  #   container_name: gluetun
+  #   restart: unless-stopped
+  #   cap_add:
+  #     - NET_ADMIN
+  #   devices:
+  #     - /dev/net/tun:/dev/net/tun
+  #   environment:
+  #     - HTTPPROXY=on                 # expose the HTTP proxy on :8888 (what the addon uses)
+  #     - HTTPPROXY_LISTENING_ADDRESS=:8888
+  #     # --- WireGuard example (recommended) ---
+  #     - VPN_SERVICE_PROVIDER=custom
+  #     - VPN_TYPE=wireguard
+  #     - WIREGUARD_PRIVATE_KEY=<your-wg-private-key>
+  #     - WIREGUARD_ADDRESSES=10.0.0.2/32
+  #     - WIREGUARD_PUBLIC_KEY=<server-public-key>
+  #     - WIREGUARD_ENDPOINT_IP=<server-ip>
+  #     - WIREGUARD_ENDPOINT_PORT=51820
+  #     # (or VPN_TYPE=openvpn with OPENVPN_USER/OPENVPN_PASSWORD + a built-in provider —
+  #     #  set VPN_SERVICE_PROVIDER=<provider> e.g. mullvad/protonvpn/nordvpn, see gluetun docs)
 
 volumes:
   usatv-cache:

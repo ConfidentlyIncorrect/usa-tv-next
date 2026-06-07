@@ -137,7 +137,11 @@ async function main() {
                     source: cfg.PROXY_PUBLIC_URL ? 'PROXY_PUBLIC_URL'
                         : proxy.publicBase() ? 'auto-detected' : 'not-yet-known',
                 },
-                dlhd: { enabled: cfg.DLHD_ENABLE, mappedChannels: dlhd.mappedCount() },
+                dlhd: {
+                    enabled: cfg.DLHD_ENABLE,
+                    mappedChannels: dlhd.mappedCount(),
+                    outboundProxy: cfg.DLHD_OUTBOUND_PROXY || null,
+                },
             }));
         }
         // EPG match diagnostic — shows what the active guide source provides vs the roster, so

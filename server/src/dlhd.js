@@ -39,6 +39,7 @@ const { Readable } = require('stream');
 const cfg = require('./config');
 const log = require('./log')('DaddyLive');
 const proxy = require('./proxy');
+const outbound = require('./outbound');
 const { DARK, EXTRA } = require('./dlhdChannels');
 
 const PREFIX = '/dlhd/';
@@ -89,7 +90,10 @@ async function _get(url, referer, timeoutMs, attempt = 0) {
     const timer = setTimeout(() => controller.abort(), timeoutMs || cfg.DLHD_RESOLVE_TIMEOUT_MS);
     let host = url; try { host = new URL(url).host; } catch { /* keep url */ }
     try {
-        const resp = await fetch(url, { headers: _headers(referer), redirect: 'follow', signal: controller.signal });
+        const resp = await fetch(url, {
+            headers: _headers(referer), redirect: 'follow', signal: controller.signal,
+            dispatcher: outbound.dlhdDispatcher(),  // VPN/proxy egress when configured, else direct
+        });
         const text = await resp.text();
         if (!resp.ok) throw new Error(`HTTP ${resp.status} for ${host}`);
         return { text, finalUrl: resp.url || url };
@@ -257,13 +261,17 @@ async function _handleMedia(req, res, dlhdId) {
     const onClose = () => controller.abort();
     req.on('close', onClose);
     try {
-        const resp = await fetch(r.media, { headers: _headers(`${cfg.DLHD_BASE}/`), redirect: 'follow', signal: controller.signal });
+        const resp = await fetch(r.media, {
+            headers: _headers(`${cfg.DLHD_BASE}/`), redirect: 'follow', signal: controller.signal,
+            dispatcher: outbound.dlhdDispatcher(),
+        });
         const text = await resp.text();
         if (!resp.ok || !/#EXTM3U/.test(text)) throw new Error(`bad media playlist (HTTP ${resp.status})`);
-        // Route every segment/key/map through the EXISTING /proxy (root-relative). Segments aren't
-        // header-locked, but proxying keeps the client on our host and reuses the proxy's Range/
-        // error handling + manifest micro-cache.
-        const rewritten = proxy.rewriteManifest(text, resp.url || r.media);
+        // Route every segment/key/map through the EXISTING /proxy (root-relative), TAGGED ?o=dlhd
+        // so the proxy egresses those CDN fetches through the same VPN/proxy as the resolver (the
+        // CDN drops VPS IPs too). Segments aren't header-locked, but proxying keeps the client on
+        // our host and reuses the proxy's Range/error handling + manifest micro-cache.
+        const rewritten = proxy.rewriteManifest(text, resp.url || r.media, '?o=dlhd');
         _mediaCache.set(dlhdId, { body: rewritten, expires: Date.now() + _MEDIA_TTL_MS });
         _sendManifest(res, rewritten);
     } finally {

@@ -134,6 +134,12 @@ const DLHD_EMBED_HOST = (process.env.DLHD_EMBED_HOST || '').trim().replace(/^htt
 // Re-resolve a channel when its token is within this margin of expiry (token life is ~58min).
 const DLHD_TOKEN_MARGIN_MS = parseInt(process.env.DLHD_TOKEN_MARGIN_MS || '120000', 10);
 const DLHD_RESOLVE_TIMEOUT_MS = parseInt(process.env.DLHD_RESOLVE_TIMEOUT_MS || '15000', 10);
+// SPLIT-TUNNEL: DaddyLive's premium embed + CDN origins drop datacenter/VPS egress IPs (the
+// main dlhd.pk site is fine, but the embed/CDN time out -> "cannot reach ...: CONNECT_TIMEOUT").
+// Set DLHD_OUTBOUND_PROXY to an HTTP(S) proxy on a residential/VPN exit (e.g. a gluetun sidecar:
+// http://gluetun:8888) and ONLY the DaddyLive fetches — the resolver chain + the CDN segments —
+// egress through it; every other source (EPG, GitHub, iptv-org, Tubi, tvpass, …) stays direct.
+const DLHD_OUTBOUND_PROXY = (process.env.DLHD_OUTBOUND_PROXY || '').trim();
 
 // --- Server ----------------------------------------------------------------
 
@@ -212,6 +218,7 @@ const config = {
     DLHD_EMBED_HOST,
     DLHD_TOKEN_MARGIN_MS,
     DLHD_RESOLVE_TIMEOUT_MS,
+    DLHD_OUTBOUND_PROXY,
 };
 
 // Log the resolved configuration once at load so every container start is auditable.
@@ -233,6 +240,6 @@ log.info(`  BLOCKLIST_HOSTS    = ${STREAM_BLOCKLIST_HOSTS.join(', ') || '(none)'
 log.info(`  PRIORITY_HOSTS     = ${STREAM_PRIORITY_HOSTS.join(', ') || '(none)'}`);
 log.info(`  PROXY              = ${PROXY_DISABLE ? 'disabled (PROXY_DISABLE=1)'
     : PROXY_PUBLIC_URL ? `on -> ${PROXY_PUBLIC_URL}` : 'auto (public base learned from request Host)'}`);
-log.info(`  DLHD (DaddyLive)   = ${DLHD_ENABLE ? `on -> ${DLHD_BASE}${DLHD_INCLUDE_EXTRA ? ' (+EXTRA channels)' : ''}${DLHD_EMBED_HOST ? `, embed ${DLHD_EMBED_HOST}` : ''}` : 'disabled (DLHD_ENABLE=0)'}`);
+log.info(`  DLHD (DaddyLive)   = ${DLHD_ENABLE ? `on -> ${DLHD_BASE}${DLHD_INCLUDE_EXTRA ? ' (+EXTRA channels)' : ''}${DLHD_EMBED_HOST ? `, embed ${DLHD_EMBED_HOST}` : ''}${DLHD_OUTBOUND_PROXY ? `, via proxy ${DLHD_OUTBOUND_PROXY}` : ''}` : 'disabled (DLHD_ENABLE=0)'}`);
 
 module.exports = config;

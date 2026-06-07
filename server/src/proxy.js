@@ -20,6 +20,7 @@ const { Readable } = require('stream');
 
 const cfg = require('./config');
 const log = require('./log')('Proxy');
+const outbound = require('./outbound');
 
 const PREFIX = '/proxy/';
 
@@ -106,21 +107,23 @@ function isManifest(contentType, url) {
 }
 
 // Rewrite a URI (segment / variant / key / map) to its absolute form, then to our proxy.
-function proxify(uri, baseUrl) {
+// `suffix` (e.g. "?o=dlhd") is appended so child fetches inherit an egress flag (the base64url
+// token has no '?', so this stays a clean single query).
+function proxify(uri, baseUrl, suffix = '') {
     try {
         const abs = new URL(uri, baseUrl).toString();
-        return PREFIX + encodeTarget(abs);
+        return PREFIX + encodeTarget(abs) + suffix;
     } catch {
         return uri;
     }
 }
 
 // Rewrite URI="..." inside a tag line (EXT-X-KEY / MEDIA / MAP / I-FRAME-STREAM-INF).
-function rewriteTagUri(line, baseUrl) {
-    return line.replace(/URI="([^"]+)"/g, (_m, uri) => `URI="${proxify(uri, baseUrl)}"`);
+function rewriteTagUri(line, baseUrl, suffix = '') {
+    return line.replace(/URI="([^"]+)"/g, (_m, uri) => `URI="${proxify(uri, baseUrl, suffix)}"`);
 }
 
-function rewriteManifest(text, baseUrl) {
+function rewriteManifest(text, baseUrl, suffix = '') {
     const out = [];
     for (const raw of text.split('\n')) {
         const line = raw.replace(/\r$/, '');
@@ -129,10 +132,10 @@ function rewriteManifest(text, baseUrl) {
             out.push(line);
         } else if (trimmed.startsWith('#')) {
             // Tags with a URI attribute need that URI proxied too.
-            out.push(/URI="/.test(trimmed) ? rewriteTagUri(line, baseUrl) : line);
+            out.push(/URI="/.test(trimmed) ? rewriteTagUri(line, baseUrl, suffix) : line);
         } else {
             // A bare URI line = a segment or a variant playlist.
-            out.push(proxify(trimmed, baseUrl));
+            out.push(proxify(trimmed, baseUrl, suffix));
         }
     }
     return out.join('\n');
@@ -202,11 +205,15 @@ async function handle(req, res) {
     const onClientClose = () => controller.abort();
     req.on('close', onClientClose);
 
+    // dlhd-tagged child fetches (?o=dlhd) egress through the DaddyLive VPN/proxy — the CDN drops
+    // VPS IPs just like the embed host. All other proxied feeds (tvpass/xumo/…) stay direct.
+    const dispatcher = /[?&]o=dlhd\b/.test(req.url) ? outbound.dlhdDispatcher() : undefined;
     try {
         const upstream = await fetch(target, {
             headers: upstreamHeaders(target, req),
             redirect: 'follow',
             signal: controller.signal,
+            dispatcher,
         });
 
         const ctype = upstream.headers.get('content-type') || '';
