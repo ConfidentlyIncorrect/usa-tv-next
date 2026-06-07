@@ -99,16 +99,24 @@ async function _get(url, referer, timeoutMs, attempt = 0) {
         return { text, finalUrl: resp.url || url };
     } catch (err) {
         const isHttp = /^HTTP \d/.test(err && err.message || '');
-        // One retry for a transient network blip (not for HTTP status errors or client aborts).
-        if (attempt < 1 && !isHttp && err && err.name !== 'AbortError') {
+        // Our own timeout firing surfaces as AbortError OR (through a ProxyAgent) as a
+        // cause of UND_ERR_ABORTED. Treat both as a clear timeout — and if a proxy is
+        // configured, say so, because a hang here usually means the VPN tunnel isn't up.
+        const aborted = controller.signal.aborted
+            || (err && err.name === 'AbortError')
+            || /UND_ERR_ABORTED|was cancelled/i.test(`${err && err.message} ${_causeStr(err)}`);
+        if (aborted) {
+            const secs = (timeoutMs || cfg.DLHD_RESOLVE_TIMEOUT_MS) / 1000;
+            throw new Error(`timeout after ${secs}s reaching ${host}`
+                + (cfg.DLHD_OUTBOUND_PROXY ? ` via proxy ${cfg.DLHD_OUTBOUND_PROXY} — is the VPN connected? (gluetun healthy + DNS not blocking it?)` : ''));
+        }
+        // One retry for a transient network blip (not for HTTP status errors or aborts).
+        if (attempt < 1 && !isHttp) {
             clearTimeout(timer);
             await new Promise((r) => setTimeout(r, 600));
             return _get(url, referer, timeoutMs, attempt + 1);
         }
         if (isHttp) throw err;
-        if (err && err.name === 'AbortError') {
-            throw new Error(`timeout after ${(timeoutMs || cfg.DLHD_RESOLVE_TIMEOUT_MS) / 1000}s reaching ${host}`);
-        }
         throw new Error(`cannot reach ${host}: ${_causeStr(err)}`);
     } finally {
         clearTimeout(timer);
