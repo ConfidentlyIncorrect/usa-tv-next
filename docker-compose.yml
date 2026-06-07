@@ -45,6 +45,14 @@ services:
     volumes:
       # Persist the emergency cache across restarts/redeploys.
       - usatv-cache:/app/cache
+    # If the logs show `dlhd ... cannot reach <host>: ENOTFOUND` (or EAI_AGAIN), a FILTERING
+    # DNS on this network (Pi-hole / NextDNS / AdGuard / Cloudflare-Family 1.1.1.3) is blocking
+    # DaddyLive's resolver + CDN domains. Uncomment to give just this container a plain resolver
+    # (this does NOT affect the rest of your network). A `cannot reach ...: ECONNREFUSED`/timeout
+    # instead means the host blocks this server's egress IP — a DNS change won't help there.
+    # dns:
+    #   - 1.1.1.1
+    #   - 8.8.8.8
     deploy:
       resources:
         limits:

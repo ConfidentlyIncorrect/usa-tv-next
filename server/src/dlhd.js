@@ -73,14 +73,39 @@ function _headers(referer) {
     return h;
 }
 
-async function _get(url, referer, timeoutMs) {
+// undici's fetch throws a bare "fetch failed" and buries the REAL reason (DNS, refused,
+// TLS, …) in err.cause[.cause]. Surface it so the logs say *why* — the difference between
+// "ENOTFOUND" (a filtering DNS is blocking the sketchy dlhd/CDN domains — the usual cause on
+// a Pi-hole/NextDNS/AdGuard network) and "ECONNREFUSED"/timeout (the host blocks our egress IP).
+function _causeStr(err) {
+    const c = err && err.cause;
+    if (!c) return (err && err.message) || String(err);
+    const inner = c.cause ? ` (${c.cause.code || c.cause.message || c.cause})` : '';
+    return `${c.code || c.message || c}${inner}`;
+}
+
+async function _get(url, referer, timeoutMs, attempt = 0) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs || cfg.DLHD_RESOLVE_TIMEOUT_MS);
+    let host = url; try { host = new URL(url).host; } catch { /* keep url */ }
     try {
         const resp = await fetch(url, { headers: _headers(referer), redirect: 'follow', signal: controller.signal });
         const text = await resp.text();
-        if (!resp.ok) throw new Error(`HTTP ${resp.status} for ${url}`);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status} for ${host}`);
         return { text, finalUrl: resp.url || url };
+    } catch (err) {
+        const isHttp = /^HTTP \d/.test(err && err.message || '');
+        // One retry for a transient network blip (not for HTTP status errors or client aborts).
+        if (attempt < 1 && !isHttp && err && err.name !== 'AbortError') {
+            clearTimeout(timer);
+            await new Promise((r) => setTimeout(r, 600));
+            return _get(url, referer, timeoutMs, attempt + 1);
+        }
+        if (isHttp) throw err;
+        if (err && err.name === 'AbortError') {
+            throw new Error(`timeout after ${(timeoutMs || cfg.DLHD_RESOLVE_TIMEOUT_MS) / 1000}s reaching ${host}`);
+        }
+        throw new Error(`cannot reach ${host}: ${_causeStr(err)}`);
     } finally {
         clearTimeout(timer);
     }
