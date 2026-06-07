@@ -78,17 +78,22 @@ services:
   #     - /dev/net/tun:/dev/net/tun
   #   environment:
   #     - HTTPPROXY=on                 # expose the HTTP proxy on :8888 (what the addon uses)
-  #     - HTTPPROXY_LISTENING_ADDRESS=:8888
-  #     # --- WireGuard example (recommended) ---
-  #     - VPN_SERVICE_PROVIDER=custom
-  #     - VPN_TYPE=wireguard
-  #     - WIREGUARD_PRIVATE_KEY=<your-wg-private-key>
-  #     - WIREGUARD_ADDRESSES=10.0.0.2/32
-  #     - WIREGUARD_PUBLIC_KEY=<server-public-key>
-  #     - WIREGUARD_ENDPOINT_IP=<server-ip>
-  #     - WIREGUARD_ENDPOINT_PORT=51820
-  #     # (or VPN_TYPE=openvpn with OPENVPN_USER/OPENVPN_PASSWORD + a built-in provider —
-  #     #  set VPN_SERVICE_PROVIDER=<provider> e.g. mullvad/protonvpn/nordvpn, see gluetun docs)
+  #     # --- NordVPN (confirmed working) — OpenVPN with SERVICE credentials ---
+  #     # Get these from the Nord dashboard > "Set up NordVPN manually" > Service credentials
+  #     # (a username + password that are NOT your account login).
+  #     - VPN_SERVICE_PROVIDER=nordvpn
+  #     - VPN_TYPE=openvpn
+  #     - OPENVPN_USER=<nord-service-username>
+  #     - OPENVPN_PASSWORD=<nord-service-password>
+  #     - SERVER_COUNTRIES=United States      # pin a region/server that passed the viability test
+  #     # --- or a custom WireGuard config (a provider .conf or your home WG) ---
+  #     # - VPN_SERVICE_PROVIDER=custom
+  #     # - VPN_TYPE=wireguard
+  #     # - VPN_ENDPOINT_IP=<server-ip>
+  #     # - VPN_ENDPOINT_PORT=51820
+  #     # - WIREGUARD_PUBLIC_KEY=<server-pubkey>
+  #     # - WIREGUARD_PRIVATE_KEY=<your-privkey>
+  #     # - WIREGUARD_ADDRESSES=10.x.x.x/32
 
 volumes:
   usatv-cache:
