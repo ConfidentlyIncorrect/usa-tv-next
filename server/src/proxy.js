@@ -205,9 +205,13 @@ async function handle(req, res) {
     const onClientClose = () => controller.abort();
     req.on('close', onClientClose);
 
-    // dlhd-tagged child fetches (?o=dlhd) egress through the DaddyLive VPN/proxy — the CDN drops
-    // VPS IPs just like the embed host. All other proxied feeds (tvpass/xumo/…) stay direct.
-    const dispatcher = /[?&]o=dlhd\b/.test(req.url) ? outbound.dlhdDispatcher() : undefined;
+    // Route through the VPN (DLHD_OUTBOUND_PROXY) when: (a) the child is dlhd-tagged (?o=dlhd), or
+    // (b) the target host is in PROXY_VPN_HOSTS (a non-dlhd feed that also rejects datacenter IPs,
+    // e.g. Toonami Aftermath). The whole chain (master/variant/segment share the host) follows.
+    // Everything else (tvpass/xumo/…) stays direct.
+    const viaVpn = /[?&]o=dlhd\b/.test(req.url)
+        || cfg.PROXY_VPN_HOSTS.some((h) => target.toLowerCase().includes(h));
+    const dispatcher = viaVpn ? outbound.dlhdDispatcher() : undefined;
     try {
         const upstream = await fetch(target, {
             headers: upstreamHeaders(target, req),

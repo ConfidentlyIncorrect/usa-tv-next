@@ -140,6 +140,11 @@ const DLHD_RESOLVE_TIMEOUT_MS = parseInt(process.env.DLHD_RESOLVE_TIMEOUT_MS || 
 // http://gluetun:8888) and ONLY the DaddyLive fetches — the resolver chain + the CDN segments —
 // egress through it; every other source (EPG, GitHub, iptv-org, Tubi, tvpass, …) stays direct.
 const DLHD_OUTBOUND_PROXY = (process.env.DLHD_OUTBOUND_PROXY || '').trim();
+// Extra (non-DaddyLive) hosts whose proxied fetches should ALSO egress through DLHD_OUTBOUND_PROXY
+// (the VPN) — for fragile feeds that likewise reject datacenter/VPS IPs (e.g. the fan-run Toonami
+// Aftermath origin, which 500s from a VPS but serves fine residentially). Comma-separated host
+// substrings; matched against the proxied target. No effect unless DLHD_OUTBOUND_PROXY is set.
+const PROXY_VPN_HOSTS = splitList(process.env.PROXY_VPN_HOSTS, 'toonamiaftermath.com');
 
 // --- Server ----------------------------------------------------------------
 
@@ -219,6 +224,7 @@ const config = {
     DLHD_TOKEN_MARGIN_MS,
     DLHD_RESOLVE_TIMEOUT_MS,
     DLHD_OUTBOUND_PROXY,
+    PROXY_VPN_HOSTS,
 };
 
 // Log the resolved configuration once at load so every container start is auditable.
@@ -241,5 +247,6 @@ log.info(`  PRIORITY_HOSTS     = ${STREAM_PRIORITY_HOSTS.join(', ') || '(none)'}
 log.info(`  PROXY              = ${PROXY_DISABLE ? 'disabled (PROXY_DISABLE=1)'
     : PROXY_PUBLIC_URL ? `on -> ${PROXY_PUBLIC_URL}` : 'auto (public base learned from request Host)'}`);
 log.info(`  DLHD (DaddyLive)   = ${DLHD_ENABLE ? `on -> ${DLHD_BASE}${DLHD_INCLUDE_EXTRA ? ' (+EXTRA channels)' : ''}${DLHD_EMBED_HOST ? `, embed ${DLHD_EMBED_HOST}` : ''}${DLHD_OUTBOUND_PROXY ? `, via proxy ${DLHD_OUTBOUND_PROXY}` : ''}` : 'disabled (DLHD_ENABLE=0)'}`);
+if (DLHD_OUTBOUND_PROXY && PROXY_VPN_HOSTS.length) log.info(`  VPN-routed hosts   = ${PROXY_VPN_HOSTS.join(', ')} (also via DLHD_OUTBOUND_PROXY)`);
 
 module.exports = config;

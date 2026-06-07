@@ -65,6 +65,7 @@ docker run -d -p 7001:7001 --memory=4g ghcr.io/confidentlyincorrect/usa-tv-next:
 | `DLHD_BASE` / `DLHD_EMBED_HOST` | `https://dlhd.pk` / _(auto)_ | Follow DaddyLive domain rotations without a code change |
 | `DLHD_TOKEN_MARGIN_MS` / `DLHD_RESOLVE_TIMEOUT_MS` | `120000` / `15000` | Re-resolve margin before the ~58 min token expiry / resolve timeout |
 | `DLHD_OUTBOUND_PROXY` | _(unset)_ | Split-tunnel: route **only** DaddyLive traffic through an HTTP proxy on a residential/VPN exit (e.g. a `gluetun` sidecar at `http://gluetun:8888`). Fixes datacenter/VPS IP blocks of DaddyLive's embed/CDN; everything else stays direct |
+| `PROXY_VPN_HOSTS` | `toonamiaftermath.com` | Extra non-DaddyLive hosts to ALSO route through `DLHD_OUTBOUND_PROXY` (for feeds that reject datacenter IPs, e.g. the Toonami Aftermath origin). Comma-separated substrings; no effect unless the VPN proxy is set |
 | `TZ` | `America/Denver` | Schedule display timezone |
 | `LOG_LEVEL` | `info` | Set `debug` for per-request routing/cache/fetch logs |
 | `NODE_OPTIONS` | `--max-old-space-size=3072` | Headroom for the ~188 MB EPG parse (needs ~4 GB) |
