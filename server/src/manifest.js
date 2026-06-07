@@ -17,7 +17,7 @@ const manifest = {
     id: 'community.usa-tv-next',
     version: '3.0.0',
     name: 'USA TV Next',
-    description: 'USA live TV with an integrated Electronic Program Guide. Browse 169+ channels with Now Playing / Up Next, full day schedules, search, and genre filtering — streams and guide served from a single addon.',
+    description: 'USA live TV with an integrated Electronic Program Guide. Browse 293 channels with Now Playing / Up Next, full day schedules, search, and genre filtering — streams and guide served from a single addon, with multiple stream sources per channel for reliability.',
     logo: 'https://raw.githubusercontent.com/ConfidentlyIncorrect/usa-tv-next/main/public/logo.png',
     background: 'https://raw.githubusercontent.com/ConfidentlyIncorrect/usa-tv-next/main/public/background.jpg',
 

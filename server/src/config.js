@@ -116,6 +116,25 @@ const PROXY_USER_AGENT = process.env.PROXY_USER_AGENT
     || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 const PROXY_TIMEOUT_MS = parseInt(process.env.PROXY_TIMEOUT_MS || '20000', 10);
 
+// --- DaddyLive (dlhd.pk) live resolver -------------------------------------
+// Restores the ~69 premium/cable/sports channels that went dark when tvpass.org died, by
+// resolving dlhd.pk channel ids (mapped in dlhdChannels.js) to fresh tokenized HLS at request
+// time and re-serving them through /dlhd + the /proxy. Requires the proxy to be active (the
+// resolved CDN tokens expire ~hourly and the client must talk plain HTTPS to our host).
+// DLHD_INCLUDE_EXTRA also offers dlhd on channels that still have a free feed (off by default —
+// avoids adding a rotating piracy source to channels that already work). DLHD_BASE/DLHD_EMBED_HOST
+// let you follow domain rotations without a code change. Set DLHD_ENABLE=0 to turn it all off.
+const DLHD_ENABLE = process.env.DLHD_ENABLE !== '0';
+// On by default: also offer DaddyLive on channels that still have a free feed (an HD premium-source
+// alternate). Quality-first ordering may make the dlhd HD feed the default where the free feed is SD.
+// Set DLHD_INCLUDE_EXTRA=0 to restrict dlhd to the DARK (tvpass-dead) channels only.
+const DLHD_INCLUDE_EXTRA = process.env.DLHD_INCLUDE_EXTRA !== '0';
+const DLHD_BASE = (process.env.DLHD_BASE || 'https://dlhd.pk').trim().replace(/\/+$/, '');
+const DLHD_EMBED_HOST = (process.env.DLHD_EMBED_HOST || '').trim().replace(/^https?:\/\//, '').replace(/\/+$/, '');
+// Re-resolve a channel when its token is within this margin of expiry (token life is ~58min).
+const DLHD_TOKEN_MARGIN_MS = parseInt(process.env.DLHD_TOKEN_MARGIN_MS || '120000', 10);
+const DLHD_RESOLVE_TIMEOUT_MS = parseInt(process.env.DLHD_RESOLVE_TIMEOUT_MS || '15000', 10);
+
 // --- Server ----------------------------------------------------------------
 
 const PORT = parseInt(process.env.PORT || '7001', 10);
@@ -187,6 +206,12 @@ const config = {
     PROXY_FORCE_HOSTS,
     PROXY_USER_AGENT,
     PROXY_TIMEOUT_MS,
+    DLHD_ENABLE,
+    DLHD_INCLUDE_EXTRA,
+    DLHD_BASE,
+    DLHD_EMBED_HOST,
+    DLHD_TOKEN_MARGIN_MS,
+    DLHD_RESOLVE_TIMEOUT_MS,
 };
 
 // Log the resolved configuration once at load so every container start is auditable.
@@ -208,5 +233,6 @@ log.info(`  BLOCKLIST_HOSTS    = ${STREAM_BLOCKLIST_HOSTS.join(', ') || '(none)'
 log.info(`  PRIORITY_HOSTS     = ${STREAM_PRIORITY_HOSTS.join(', ') || '(none)'}`);
 log.info(`  PROXY              = ${PROXY_DISABLE ? 'disabled (PROXY_DISABLE=1)'
     : PROXY_PUBLIC_URL ? `on -> ${PROXY_PUBLIC_URL}` : 'auto (public base learned from request Host)'}`);
+log.info(`  DLHD (DaddyLive)   = ${DLHD_ENABLE ? `on -> ${DLHD_BASE}${DLHD_INCLUDE_EXTRA ? ' (+EXTRA channels)' : ''}${DLHD_EMBED_HOST ? `, embed ${DLHD_EMBED_HOST}` : ''}` : 'disabled (DLHD_ENABLE=0)'}`);
 
 module.exports = config;

@@ -18,6 +18,7 @@ const epg = require('./epg');
 const channelMap = require('./channelMap');
 const addonInterface = require('./addon');
 const proxy = require('./proxy');
+const dlhd = require('./dlhd');
 
 // --- process-level safety net ----------------------------------------------------------------
 // This is an always-on streaming addon: the realistic uncaught errors are benign network/stream
@@ -117,6 +118,13 @@ async function main() {
         if (req.url && req.url.startsWith(proxy.PREFIX)) {
             return proxy.handle(req, res);
         }
+        // DaddyLive re-resolving HLS endpoints (master/media). async — guard against rejections.
+        if (req.url && req.url.startsWith(dlhd.PREFIX)) {
+            return dlhd.handle(req, res).catch((e) => {
+                log.warn(`dlhd handler error: ${e && e.message}`);
+                if (!res.headersSent && !res.writableEnded) { res.statusCode = 502; try { res.end('dlhd error'); } catch { /* gone */ } }
+            });
+        }
         if (req.url && req.url.split('?')[0] === '/health') {
             res.setHeader('Content-Type', 'application/json');
             return res.end(JSON.stringify({
@@ -129,6 +137,7 @@ async function main() {
                     source: cfg.PROXY_PUBLIC_URL ? 'PROXY_PUBLIC_URL'
                         : proxy.publicBase() ? 'auto-detected' : 'not-yet-known',
                 },
+                dlhd: { enabled: cfg.DLHD_ENABLE, mappedChannels: dlhd.mappedCount() },
             }));
         }
         // EPG match diagnostic — shows what the active guide source provides vs the roster, so
@@ -183,6 +192,16 @@ async function main() {
                 res.statusCode = 500;
                 return res.end(JSON.stringify({ error: e.message }));
             }
+        }
+        // DaddyLive resolver diagnostic — runs the live chain for one dlhd id and reports the
+        // resolved master/media URLs, CDN host, and token TTL. Usage: /debug/dlhd?id=44
+        if (req.url && req.url.split('?')[0] === '/debug/dlhd') {
+            res.setHeader('Content-Type', 'application/json');
+            const id = parseInt(new URL(req.url, 'http://x').searchParams.get('id') || '', 10);
+            if (!Number.isFinite(id)) { res.statusCode = 400; return res.end(JSON.stringify({ error: 'pass ?id=<dlhd numeric id>, e.g. 44' })); }
+            return dlhd.debugResolve(id)
+                .then((r) => res.end(JSON.stringify({ enabled: cfg.DLHD_ENABLE, mapped: dlhd.mappedCount(), resolve: r }, null, 2)))
+                .catch((e) => { res.statusCode = 502; res.end(JSON.stringify({ error: e.message }, null, 2)); });
         }
         router(req, res, () => {
             res.statusCode = 404;

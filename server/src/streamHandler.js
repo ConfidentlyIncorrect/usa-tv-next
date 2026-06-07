@@ -14,6 +14,7 @@ const epg = require('./epg');
 const channelMap = require('./channelMap');
 const log = require('./log')('StreamHandler');
 const proxy = require('./proxy');
+const dlhd = require('./dlhd');
 
 // --- EPG guide string (for the NuvioTV custom fork's focus-reactive left panel) ------------
 // We attach the CHANNEL's now/next to each stream as a non-standard `epg` field. The fork's
@@ -50,6 +51,13 @@ function isBlocked(url) {
     return cfg.STREAM_BLOCKLIST_HOSTS.some((h) => u.includes(h));
 }
 
+// A feed a prior `consolidate` run tagged dead (name prefixed "[DEAD]") — e.g. the frozen
+// nbcu-*.amagi.tv Telemundo FAST feed that serves "a second of black, then exit". Never serve
+// these: drop them so the channel falls back to its other feeds (or the DaddyLive resolver).
+function isDeadLabeled(s) {
+    return /^\s*\[DEAD\]/i.test((s && s.name) || '');
+}
+
 // Hosts that MUST always be proxied (when the proxy is active), for two reasons:
 //   • redirect/tokenized: 302 to a tokenized/IP-bound/load-balanced host whose token or
 //     SSAI session is minted per-request, so a naive player's playlist refresh mints a
@@ -65,11 +73,14 @@ function isBlocked(url) {
 //       - *.fast.nbcuni.com (XUMO — confirmed on the Telemundo feeds / Universal Crime East);
 //       - *.amagi.tv        (amagi SSAI — Vevo, Court TV, Estrella, AccuWeather NOW, … 37 feeds);
 //       - *.uplynk.com      (Verizon/EdgeCast SSAI);
-//       - *.mediatailor.*   (AWS Elemental MediaTailor SSAI — Documentary+, Red Bull TV).
+//       - *.mediatailor.*   (AWS Elemental MediaTailor SSAI — Documentary+, Red Bull TV);
+//       - *.tubi.io / *.tubi.video (Tubi live + Yospace SSAI — e.g. MotorTrend FAST TV: the
+//         stable live-manifest URL 302s into a per-session csm.tubi.video master with a
+//         jsessionid + yo.* ad params, so pinning it through the proxy keeps one session/IP).
 // The proxy gives the player ONE stable URL and does the redirect/token/segment handling
 // from a single consistent server IP.
 const FORCE_PROXY_HOSTS = ['tvpass.org', 'thetvapp.to', 'dai.google.com', 'a.run.app',
-    'fast.nbcuni.com', 'amagi.tv', 'uplynk.com', 'mediatailor'];
+    'fast.nbcuni.com', 'amagi.tv', 'uplynk.com', 'mediatailor', 'tubi.io', 'tubi.video'];
 
 // SSAI ad-stitch markers that live in the URL (not the host): XUMO's per-request ad-session feeds
 // are served from generic CloudFront hosts but carry "?ads.xumo_channelId=" — played directly they
@@ -135,10 +146,12 @@ function normalizeStream(s) {
     // { url, behaviorHints:{notWebReady:true, proxyHeaders}, name, description }.
     const behaviorHints = Object.assign({ notWebReady: true }, s.behaviorHints || {});
     let url = s.url;
+    // Our own /dlhd endpoints are already clean HTTPS on our host — never re-wrap them.
+    const isOwnDlhd = url.includes(dlhd.PREFIX) && proxy.publicBase() && url.startsWith(proxy.publicBase());
     // When the proxy is active (we know our public base), route fragile upstreams through
     // our HTTPS /proxy so the client gets a clean URL and segments are fetched server-side
     // with proper headers.
-    if (proxy.proxyActive() && isFragile(url)) {
+    if (!isOwnDlhd && proxy.proxyActive() && isFragile(url)) {
         url = proxy.proxyUrl(url);
         // The proxy already injects headers upstream; the client talks plain HTTPS to us.
         delete behaviorHints.proxyHeaders;
@@ -165,8 +178,28 @@ async function handleStream({ type, id }) {
         // and the harvester's original (regional) order kept as the final, stable tiebreaker. This
         // makes the best-quality feed — usually the one carrying WebVTT subtitles — the default.
         // Set STREAM_SORT=data to keep the raw harvester order instead (orderStreams is then a no-op).
-        const allowed = valid.filter((s) => !isBlocked(s.url));
+        const allowed = valid.filter((s) => !isBlocked(s.url) && !isDeadLabeled(s));
         const dropped = valid.length - allowed.length;
+
+        // DaddyLive fallback/option: channels mapped in dlhdChannels.js get a live-resolved HLS
+        // feed served via our /dlhd endpoint (clean HTTPS on our own host — the client needs no
+        // special handling). For the ~69 "dark" channels (tvpass gone) this is their ONLY stream;
+        // for opted-in EXTRA channels it's an additional premium-source option. Requires the proxy
+        // (its CDN tokens expire hourly + the /dlhd media endpoint builds URLs off our public base).
+        const dlhdId = dlhd.dlhdIdForRoster(id);
+        if (dlhdId && proxy.proxyActive()) {
+            const url = dlhd.masterUrlFor(dlhdId);
+            if (url) {
+                const ch = data.getChannelById(id);
+                allowed.push({
+                    url,
+                    name: `${(ch && ch.name) || 'Channel'} (HD)`,
+                    description: 'DaddyLive',
+                    behaviorHints: { notWebReady: true },
+                });
+            }
+        }
+
         const streams = orderStreams(allowed).map(normalizeStream);
 
         // Attach the channel's guide to EVERY stream so the fork's left panel is formatted

@@ -6,3 +6,7 @@ __pycache__/
 
 # Server emergency cache (roster/EPG) — runtime artifact, never commit
 cache/
+
+# Node deps for the server — installed at Docker build / runtime, never commit
+node_modules/
+server/package-lock.json

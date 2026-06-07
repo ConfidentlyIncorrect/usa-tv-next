@@ -23,7 +23,7 @@ stremio://raw.githubusercontent.com/ConfidentlyIncorrect/usa-tv-next/main/manife
 
 [Install via Stremio Web](https://web.stremio.com/#/addons?addon=https%3A%2F%2Fraw.githubusercontent.com%2FConfidentlyIncorrect%2Fusa-tv-next%2Fmain%2Fmanifest.json)
 
-> Manifest id `community.usa-tv-next` (v2.1.0). The catalog/meta/stream JSON is fetched relative to this URL, so it always serves the latest data on `main`. (The repo must stay public for raw URLs to resolve.)
+> Manifest id `community.usa-tv-next` (v3.0.0). The catalog/meta/stream JSON is fetched relative to this URL, so it always serves the latest data on `main`. (The repo must stay public for raw URLs to resolve.)
 
 ## Combined Docker server (`server/`)
 
@@ -60,6 +60,10 @@ docker run -d -p 7001:7001 --memory=4g ghcr.io/confidentlyincorrect/usa-tv-next:
 | `PROXY_FORCE_HOSTS` | _(empty)_ | Extra host/URL substrings to force through the proxy |
 | `PROXY_DISABLE` | _(unset)_ | `1` turns the proxy off (fragile feeds served direct, sorted last) |
 | `PROXY_MANIFEST_TTL_MS` / `PROXY_MASTER_TTL_MS` | `2000` / `15000` | Micro-cache TTL for proxied media / master playlists |
+| `DLHD_ENABLE` | `1` (on) | DaddyLive resolver — restores the ~71 channels that went dark when tvpass died. `0` disables |
+| `DLHD_INCLUDE_EXTRA` | `1` (on) | Also offers DaddyLive as an HD alternate on the 59 channels that still have a free feed (130 mapped total). `0` = DARK channels only |
+| `DLHD_BASE` / `DLHD_EMBED_HOST` | `https://dlhd.pk` / _(auto)_ | Follow DaddyLive domain rotations without a code change |
+| `DLHD_TOKEN_MARGIN_MS` / `DLHD_RESOLVE_TIMEOUT_MS` | `120000` / `15000` | Re-resolve margin before the ~58 min token expiry / resolve timeout |
 | `TZ` | `America/Denver` | Schedule display timezone |
 | `LOG_LEVEL` | `info` | Set `debug` for per-request routing/cache/fetch logs |
 | `NODE_OPTIONS` | `--max-old-space-size=3072` | Headroom for the ~188 MB EPG parse (needs ~4 GB) |
@@ -88,6 +92,17 @@ Programmes from every source share one store via `sd:`/`pw:`/`es:` id prefixes. 
 | Health | `/health` |
 | EPG match report | `/debug/epg?full=1` |
 | Channel schedule dump | `/debug/schedule?ch={name}` |
+| DaddyLive resolve test | `/debug/dlhd?id={dlhd numeric id}` |
+
+## Channel streams & sources
+
+Each channel aims to offer **more than one stream to pick from** for reliability. Streams come from several layers, merged and quality-sorted (FHD > HD > SD) at request time:
+
+- **Harvested feeds** — the curated static streams in `stream/tv/*.json` (iptv-org, famelack, FAST platforms, …), kept fresh by the harvester.
+- **DaddyLive resolver** (`server/src/dlhd.js`) — when the proxy is active, **130 channels** get a live-resolved DaddyLive HD feed (`/dlhd/<id>/master.m3u8`). This **restored the ~71 premium/cable/sports channels that went dark when tvpass.org died** (ESPN family, RSNs, A&E/AMC/TBS/TNT/USA, CNBC/MSNBC, the HBO/Showtime/Starz/Cinemax multiplexes, Disney/Nick kids, Telemundo…) and adds an HD alternate to channels that still have a free feed (`DLHD_INCLUDE_EXTRA`, on by default). DaddyLive tokens are minted fresh per request and re-resolved before they expire, so playback is seamless; the client only ever sees a clean HLS URL on your host, so **the player needs no special handling**. Test a channel with `/debug/dlhd?id=<N>`.
+- **Cross-source enrichment** — `iptvorg-enrich` and `famelack-enrich` add ffprobe-validated, deduped second feeds to existing channels.
+
+Dead providers are filtered at runtime: blocklisted hosts (`pluto.tv`, the offline `tvpass.org`/`thetvapp.to`) and any feed a prior `consolidate` run tagged `[DEAD]` are never served. A handful of niche channels remain single-source where no second provider exists.
 
 ## Stream proxy (fragile-feed reliability)
 
@@ -99,7 +114,7 @@ Some upstream feeds are hard for a TV client to play directly — plain HTTP, ra
 
 > **TVPass now requires the proxy.** tvpass.org 302-redirects each request to a load-balanced, IP-bound, tokenized host (`*.thetvapp.to`) — a naive player refreshing the live playlist gets a different host/token each time and 404s its segments (infinite buffer). The proxy gives the player one stable URL and handles the redirect/token/segment-rewriting from a single server IP, so **tvpass (the primary provider) and Google DAI are always proxied** (built-in `FORCE_PROXY_HOSTS`). This means the proxy must be active — i.e. run behind Tailscale Funnel / a public base — for tvpass to play.
 
-> **Force-proxied feeds** (`server/src/streamHandler.js`): `tvpass.org`/`thetvapp.to` (token), `dai.google.com` and `*.a.run.app` (Google DAI / the `amd-mediator` SSAI front for CBS Sports Golazo — each mints a fresh DAI session per request, so direct playback buffers forever), `*.fast.nbcuni.com`, `*.amagi.tv`, `*.uplynk.com`, `*.mediatailor.*` (SSAI ad-stitchers that play a second of black then exit), and any URL carrying the XUMO SSAI marker `ads.xumo_channelId` (on plain CloudFront hosts). All are pinned to one server IP so the redirect+session chain stays consistent.
+> **Force-proxied feeds** (`server/src/streamHandler.js`): `tvpass.org`/`thetvapp.to` (token), `dai.google.com` and `*.a.run.app` (Google DAI / the `amd-mediator` SSAI front for CBS Sports Golazo — each mints a fresh DAI session per request, so direct playback buffers forever), `*.fast.nbcuni.com`, `*.amagi.tv`, `*.uplynk.com`, `*.mediatailor.*`, `*.tubi.io`/`*.tubi.video` (SSAI ad-stitchers — Amagi, Uplynk, AWS MediaTailor, Tubi/Yospace — that play a second of black then exit), and any URL carrying the XUMO SSAI marker `ads.xumo_channelId` (on plain CloudFront hosts). All are pinned to one server IP so the redirect+session chain stays consistent.
 
 **Latency:** the proxy reuses upstream connections (keep-alive) and keeps a tiny TTL **manifest micro-cache** — media playlists ~2 s, masters ~15 s (`PROXY_MANIFEST_TTL_MS` / `PROXY_MASTER_TTL_MS`). This collapses the duplicate upstream fetches a live player makes (startup bursts, ABR switches, per-poll refreshes) without ever serving a stale live edge, and notably eases tvpass's burst throttling (the "tvpass is slow" symptom). Segments are never cached — only relayed.
 

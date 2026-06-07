@@ -175,7 +175,10 @@ server/src/
   channelMap.js   — fuzzy match roster->EPG (130+ overrides); roster from data.js
   manifest.js     — combined manifest (catalog id "all"; resources catalog+meta+stream)
   catalogHandler.js / metaHandler.js — EPG-enriched catalog + meta
-  streamHandler.js — serves streams via data.getStreams()
+  streamHandler.js — serves streams via data.getStreams() (+ adds DaddyLive fallback streams)
+  proxy.js        — HLS-rewriting stream proxy (/proxy) for fragile/header-gated feeds
+  dlhd.js         — DaddyLive live resolver + re-serving HLS endpoints (/dlhd) — see below
+  dlhdChannels.js — roster id -> dlhd numeric id map (71 DARK + 59 EXTRA, US-feed pinned)
   addon.js / server.js — builder wiring + startup + refresh intervals + serveHTTP
 ```
 
@@ -188,6 +191,26 @@ server/src/
 **Key env vars:** `PORT`/`HOST`, `EPG_URL` (epg.pw tier-2 XMLTV), `EPGSHARE_URLS` (epgshare01 tier-3 feeds, comma-separated; `''` disables), `SD_USERNAME`/`SD_PASSWORD` (enable Schedules Direct), `SD_ZIP` (auto-add a lineup for that postal code), `SD_TRANSPORT` (Satellite/Cable/Antenna/IPTV; default prefer Satellite), `SD_LINEUP` (substring filter to one lineup), `SD_DAYS` (schedule days, default 2), `STREAM_SORT` (`quality` default / `data`), `RESPONSE_CACHE_SECS` (default 300), `PROXY_PUBLIC_URL`/`PROXY_DISABLE`/`PROXY_FORCE_HOSTS`, `GITHUB_RAW_BASE`, `DATA_REFRESH_HOURS`, `EPG_REFRESH_HOURS`, `TZ`, `LOG_LEVEL` (set `debug` for per-request routing/cache/fetch logs), `NODE_OPTIONS=--max-old-space-size=3072`. Diagnostics: `GET /debug/epg?full=1` and `GET /debug/schedule?ch=<name>`.
 
 > Data note: `catalog/tv/all.json` carries empty inline `streams` by design (Stremio fetches streams lazily per id). The server therefore resolves streams from `stream/tv/{id}.json`. Once `inject.py` populates inline `streams` in `all.json`, the roster fetch alone refreshes streams without a redeploy.
+
+### DaddyLive resolver (`dlhd.js` + `dlhdChannels.js`) — restores the tvpass-dark tier
+
+When tvpass.org died, **71 premium/cable/sports channels lost their only stream** (ESPN family, RSNs, A&E/AMC/TBS/TNT/USA, CNBC/MSNBC/Fox Business, the HBO/Showtime/Starz/Cinemax multiplexes, Disney/Nick kids, Telemundo, …). DaddyLive (`dlhd.pk`) carries that exact tier as stable 24/7 channels, so the server resolves it **live at request time** and re-serves it as clean HLS through the existing proxy.
+
+**The chain (verified end-to-end).** `dlhd.pk/watch.php?id=N` → iframe `stream/stream-N.php` (obfuscated player) → iframe `https://<rotating-embed-host>/premiumtv/daddy3.php?id=N`; the embed page **base64-encodes (`atob`) the final media URL**, e.g. `https://<cdn>/premiumN/index.m3u8?md5v1=..&md5v2=..&expires=<unixSec>`. That master points at one media playlist (`tracks-v1a1/mono.m3u8?md5=..&expires=..`) whose `.ts` segments are disguised as `.pdf`/`.js` on **another** rotating host.
+
+**Three facts drive the design:** (1) **no referer/origin lock anywhere** — auth is entirely the in-URL `md5`/`expires` token, so the plain `/proxy` plays them and **NuvioTV needs zero changes** (it just gets a clean HLS URL on our host, exactly like tvpass/XUMO); (2) the token **expires ~58 min** after it's minted, fresh per resolve, so a URL can't be statically injected — it must be resolved live and **re-resolved before expiry**; (3) the embed host + segment host **rotate** periodically, so we discover the embed host from `stream-N.php` on every resolve and rotation self-heals.
+
+**Two endpoints** (routed at `/dlhd/` in `server.js`, before the SDK router):
+- `GET /dlhd/<id>/master.m3u8` → a **synthesized** master (re-emits the upstream `#EXT-X-STREAM-INF` for codec/res metadata) whose only variant points at our own media endpoint — so the player polls **us**, never the expiring CDN URL.
+- `GET /dlhd/<id>/media.m3u8` → fetches the **current** (cached, auto-refreshed-before-expiry) media playlist and rewrites every segment through `/proxy` (via `proxy.rewriteManifest`). Because this endpoint re-resolves under the hood, **token expiry is invisible to the player and sessions run indefinitely**.
+
+Resolution is **cached per dlhd id + single-flighted** (concurrent callers share one in-flight resolve; re-resolve only fires within `DLHD_TOKEN_MARGIN_MS` of expiry), so dlhd.pk is hit at most ~once/hour/channel. `streamHandler` adds the dlhd master URL as a stream entry (`"{Channel} (HD)"` / desc `DaddyLive`) for any mapped channel when the proxy is active; `normalizeStream` never re-wraps our own `/dlhd` URL. The map lives in `dlhdChannels.js`: **DARK** (71 — the tvpass-dark channels, always on) + **EXTRA** (59 — channels that still have a free feed but also exist on dlhd; **on by default** so every match gets a DaddyLive HD alternate — set `DLHD_INCLUDE_EXTRA=0` for DARK-only). 130 channels mapped total. dlhd ids are the `N` in `watch.php?id=N`, **pinned to the US feed** (e.g. ESPN USA=44), never a foreign variant. Regenerate the map with `data/dlhd_match.js` + `data/dlhd_gen_module.js` (both gitignored helpers; the matcher detects dark channels = zero **servable** streams — i.e. not blocklisted AND not `[DEAD]`-tagged — and name-matches them against a scraped `data/dlhd_id_name.tsv`).
+
+> **Dead-feed handling.** `streamHandler` drops any stream a prior `consolidate` run tagged dead (`name` prefixed `[DEAD]`) alongside the host blocklist — so a channel whose only static feed is dead (e.g. **Telemundo**, whose lone `nbcu-telemundoflorida-firetv.amagi.tv` feed is a frozen "black then exit" loop) is treated as dark, falls back to DaddyLive, and never offers the dead URL. The matcher applies the same rule, so such channels land in DARK rather than being miscounted as live.
+
+**Env vars:** `DLHD_ENABLE` (default on), `DLHD_INCLUDE_EXTRA` (default **on**), `DLHD_BASE` (default `https://dlhd.pk`), `DLHD_EMBED_HOST` (optional fallback embed host if `stream-N.php` discovery fails — follow rotations without a code change), `DLHD_TOKEN_MARGIN_MS` (default 120000), `DLHD_RESOLVE_TIMEOUT_MS` (default 15000). **Requires the proxy active** (PROXY_PUBLIC_URL or an auto-learned public base). Diagnostics: `GET /debug/dlhd?id=<N>` runs the live chain and reports master/media/cdnHost/expires/ttl; `/health` shows `dlhd.mappedChannels`.
+
+**4 dark channels can't be restored** (genuinely absent from dlhd AND iptv-org): BET Her, Hallmark Family, MeTV Toons, MTV2. (TV Land was a normalizer miss — "TV Land"→"land" vs dlhd's spaceless "TVLAND"→"tvland" — now pinned manually to id 342. MotorTrend isn't on dlhd but its iptv-org/Tubi FAST feed is live — injected into its stream file, force-proxied as a Yospace SSAI host.) **Maintenance:** if the embed scheme changes (a few times/year), update the `atob`/embed-URL extraction in `dlhd.js` (`_extractEmbedUrl` / `_extractMasterUrl`); the well-trodden open-source DaddyLive resolvers track the current scheme. Caveat: dlhd is a piracy re-aggregator — high coverage, lower long-term stability than a clean origin.
 
 ## Deployment
 
