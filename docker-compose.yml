@@ -78,6 +78,10 @@ services:
   #     - /dev/net/tun:/dev/net/tun
   #   environment:
   #     - HTTPPROXY=on                 # expose the HTTP proxy on :8888 (what the addon uses)
+  #     # REQUIRED: gluetun's built-in "malicious domains" DNS blocklist (default ON) blackholes
+  #     # DaddyLive's domains -> the proxy CONNECT hangs -> the addon TIMES OUT (looks like a
+  #     # block but isn't). Turn it off or DaddyLive won't resolve through the VPN.
+  #     - BLOCK_MALICIOUS=off
   #     # --- NordVPN (confirmed working) — OpenVPN with SERVICE credentials ---
   #     # Get these from the Nord dashboard > "Set up NordVPN manually" > Service credentials
   #     # (a username + password that are NOT your account login).
