@@ -11,6 +11,19 @@ This repo ships the addon in **two modes**:
 
 > Install only ONE of these in a client. If you install both the static addon and the Docker addon they share the `ustv` id space and collide on the `meta` resource.
 
+## Ecosystem
+
+This addon is one piece of a self-hosted stack built to run together, feeding a single Android TV client:
+
+| Project | Role |
+| --- | --- |
+| **[NuvioTV](https://github.com/ConfidentlyIncorrect/NuvioTV/tree/custom)** | The Android TV client. Renders this addon's live `epgSchedule` guide; also adds Cinemeta `#DUPE#` title reconstruction, episode/season/series scope search, and player fixes (CEA-608 captions, live-HLS recovery, DV/MKV). |
+| **[AIOStreams](https://github.com/ConfidentlyIncorrect/AIOStreams/tree/custom)** | On-demand movie/series aggregator — torrents (Torrentio/Comet) + a self-hosted Prowlarr → NZBGeek usenet pipeline, all resolved through TorBox. |
+| **usa-tv-next** *(this repo)* | Live US TV — ~293 channels, merged multi-source EPG, DaddyLive/iptv-org stream redundancy. |
+| **[Comet (fork)](https://github.com/ConfidentlyIncorrect/comet/tree/tvdb-dupe-fix)** | Torrent-scraper addon (currently paused). |
+
+NuvioTV is the on-screen client; this addon and AIOStreams are the two content sources behind it (live TV here, on-demand there). Both share the same `#DUPE#` philosophy — NuvioTV reconstructs duplicate-IMDb titles client-side for display, AIOStreams resolves them server-side so searches use the real title. Supporting infra (Prowlarr + NZBGeek, TorBox, Caddy) runs on a single VPS.
+
 ## Install (static)
 
 Streams-only addon served straight from GitHub raw — no server, no live guide. Reflects the current **293-channel** catalog with Pluto removed. For live EPG (Now Playing / schedules) and quality-first stream ordering, use the Combined Docker server below instead.
