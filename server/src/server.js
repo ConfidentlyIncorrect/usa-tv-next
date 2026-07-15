@@ -19,6 +19,7 @@ const channelMap = require('./channelMap');
 const addonInterface = require('./addon');
 const proxy = require('./proxy');
 const dlhd = require('./dlhd');
+const damitv = require('./damitv');
 
 // --- process-level safety net ----------------------------------------------------------------
 // This is an always-on streaming addon: the realistic uncaught errors are benign network/stream
@@ -125,6 +126,13 @@ async function main() {
                 if (!res.headersSent && !res.writableEnded) { res.statusCode = 502; try { res.end('dlhd error'); } catch { /* gone */ } }
             });
         }
+        // Token-refreshing HLS for manually vetted persistent Damitv feeds.
+        if (req.url && req.url.startsWith(damitv.PREFIX)) {
+            return damitv.handle(req, res).catch((e) => {
+                log.warn(`damitv handler error: ${e && e.message}`);
+                if (!res.headersSent && !res.writableEnded) { res.statusCode = 502; try { res.end('damitv error'); } catch { /* gone */ } }
+            });
+        }
         if (req.url && req.url.split('?')[0] === '/health') {
             res.setHeader('Content-Type', 'application/json');
             return res.end(JSON.stringify({
@@ -141,6 +149,11 @@ async function main() {
                     enabled: cfg.DLHD_ENABLE,
                     mappedChannels: dlhd.mappedCount(),
                     outboundProxy: cfg.DLHD_OUTBOUND_PROXY || null,
+                },
+                damitv: {
+                    enabled: cfg.DAMITV_ENABLE,
+                    mappedChannels: damitv.mappedCount(),
+                    base: cfg.DAMITV_BASE,
                 },
             }));
         }
@@ -205,6 +218,15 @@ async function main() {
             if (!Number.isFinite(id)) { res.statusCode = 400; return res.end(JSON.stringify({ error: 'pass ?id=<dlhd numeric id>, e.g. 44' })); }
             return dlhd.debugResolve(id)
                 .then((r) => res.end(JSON.stringify({ enabled: cfg.DLHD_ENABLE, mapped: dlhd.mappedCount(), resolve: r }, null, 2)))
+                .catch((e) => { res.statusCode = 502; res.end(JSON.stringify({ error: e.message }, null, 2)); });
+        }
+        // Damitv resolver diagnostic. Usage: /debug/damitv?id=rally-tv
+        if (req.url && req.url.split('?')[0] === '/debug/damitv') {
+            res.setHeader('Content-Type', 'application/json');
+            const id = new URL(req.url, 'http://x').searchParams.get('id') || '';
+            if (!id) { res.statusCode = 400; return res.end(JSON.stringify({ error: 'pass ?id=<source id>, e.g. rally-tv' })); }
+            return damitv.debugResolve(id)
+                .then((r) => res.end(JSON.stringify({ enabled: cfg.DAMITV_ENABLE, mapped: damitv.mappedCount(), resolve: r }, null, 2)))
                 .catch((e) => { res.statusCode = 502; res.end(JSON.stringify({ error: e.message }, null, 2)); });
         }
         router(req, res, () => {

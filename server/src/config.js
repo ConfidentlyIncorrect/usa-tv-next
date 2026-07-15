@@ -34,6 +34,13 @@ const CACHE_DIR = process.env.CACHE_DIR
 const GITHUB_RAW_BASE = (process.env.GITHUB_RAW_BASE
     || 'https://raw.githubusercontent.com/ConfidentlyIncorrect/usa-tv-next/main').replace(/\/+$/, '');
 
+// Set to 0 when the bundled image contains a curated roster that has not yet been
+// published to GITHUB_RAW_BASE. In that mode local files are authoritative and a
+// stale emergency cache or remote branch cannot silently restore removed channels.
+const DATA_REMOTE_ENABLE = !['0', 'false', 'no', 'off'].includes(
+    String(process.env.DATA_REMOTE_ENABLE || '1').trim().toLowerCase(),
+);
+
 const ROSTER_URL = `${GITHUB_RAW_BASE}/catalog/tv/all.json`;
 const STREAM_URL = (id) => `${GITHUB_RAW_BASE}/stream/tv/${id}.json`;
 
@@ -146,6 +153,15 @@ const DLHD_OUTBOUND_PROXY = (process.env.DLHD_OUTBOUND_PROXY || '').trim();
 // substrings; matched against the proxied target. No effect unless DLHD_OUTBOUND_PROXY is set.
 const PROXY_VPN_HOSTS = splitList(process.env.PROXY_VPN_HOSTS, 'toonamiaftermath.com');
 
+// Damitv's general Live TV roster mirrors DaddyLive, but its /papi API also exposes a small
+// set of persistent channels. Only identity- and playback-verified entries are mapped.
+const DAMITV_ENABLE = !['0', 'false', 'no', 'off'].includes(
+    String(process.env.DAMITV_ENABLE || '1').trim().toLowerCase(),
+);
+const DAMITV_BASE = (process.env.DAMITV_BASE || 'https://damitv.st').trim().replace(/\/+$/, '');
+const DAMITV_TOKEN_MARGIN_MS = parseInt(process.env.DAMITV_TOKEN_MARGIN_MS || '300000', 10);
+const DAMITV_RESOLVE_TIMEOUT_MS = parseInt(process.env.DAMITV_RESOLVE_TIMEOUT_MS || '15000', 10);
+
 // --- Server ----------------------------------------------------------------
 
 const PORT = parseInt(process.env.PORT || '7001', 10);
@@ -187,6 +203,7 @@ const config = {
     DATA_ROOT,
     CACHE_DIR,
     GITHUB_RAW_BASE,
+    DATA_REMOTE_ENABLE,
     ROSTER_URL,
     STREAM_URL,
     EPG_URL,
@@ -225,6 +242,10 @@ const config = {
     DLHD_RESOLVE_TIMEOUT_MS,
     DLHD_OUTBOUND_PROXY,
     PROXY_VPN_HOSTS,
+    DAMITV_ENABLE,
+    DAMITV_BASE,
+    DAMITV_TOKEN_MARGIN_MS,
+    DAMITV_RESOLVE_TIMEOUT_MS,
 };
 
 // Log the resolved configuration once at load so every container start is auditable.
@@ -232,6 +253,7 @@ log.info('Resolved configuration:');
 log.info(`  DATA_ROOT          = ${DATA_ROOT}`);
 log.info(`  CACHE_DIR          = ${CACHE_DIR}`);
 log.info(`  GITHUB_RAW_BASE    = ${GITHUB_RAW_BASE}`);
+log.info(`  DATA REMOTE FETCH  = ${DATA_REMOTE_ENABLE ? 'enabled' : 'disabled (bundled files authoritative)'}`);
 log.info(`  EPG_URL            = ${EPG_URL}`);
 log.info(`  EPGSHARE_URLS      = ${EPGSHARE_URLS.length ? `${EPGSHARE_URLS.length} feed(s)` : '(disabled)'}`);
 log.info(`  EPG SOURCE         = ${SD_USERNAME ? `Schedules Direct (primary, user ${SD_USERNAME}); XMLTV fallback` : 'epg.pw XMLTV (Schedules Direct not configured)'}`);
@@ -248,5 +270,6 @@ log.info(`  PROXY              = ${PROXY_DISABLE ? 'disabled (PROXY_DISABLE=1)'
     : PROXY_PUBLIC_URL ? `on -> ${PROXY_PUBLIC_URL}` : 'auto (public base learned from request Host)'}`);
 log.info(`  DLHD (DaddyLive)   = ${DLHD_ENABLE ? `on -> ${DLHD_BASE}${DLHD_INCLUDE_EXTRA ? ' (+EXTRA channels)' : ''}${DLHD_EMBED_HOST ? `, embed ${DLHD_EMBED_HOST}` : ''}${DLHD_OUTBOUND_PROXY ? `, via proxy ${DLHD_OUTBOUND_PROXY}` : ''}` : 'disabled (DLHD_ENABLE=0)'}`);
 if (DLHD_OUTBOUND_PROXY && PROXY_VPN_HOSTS.length) log.info(`  VPN-routed hosts   = ${PROXY_VPN_HOSTS.join(', ')} (also via DLHD_OUTBOUND_PROXY)`);
+log.info(`  Damitv             = ${DAMITV_ENABLE ? `on -> ${DAMITV_BASE}` : 'disabled (DAMITV_ENABLE=0)'}`);
 
 module.exports = config;

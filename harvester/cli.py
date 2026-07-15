@@ -134,6 +134,28 @@ def harvest(sources_file, filter_type, filter_name, concurrency, resume):
     asyncio.run(_harvest(sources, concurrency, resume))
 
 
+@main.command("snapshot-sources")
+@click.option("--output", type=click.Path(path_type=Path), default=None,
+              help="Snapshot directory (default: data/source-snapshots/<UTC timestamp>).")
+@click.option("--configured/--no-configured", default=True, help="Include sources.yaml endpoints.")
+@click.option("--legacy/--no-legacy", default=True, help="Include ../sources.txt candidate sites.")
+@click.option("--concurrency", type=int, default=6)
+def snapshot_sources(output, configured, legacy, concurrency):
+    """Retain local copies + a hash/status manifest for every source endpoint."""
+    from datetime import datetime, timezone
+    from harvester.snapshot_sources import snapshot
+
+    if output is None:
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        output = DATA_DIR / "source-snapshots" / stamp
+    result = asyncio.run(snapshot(output, configured, legacy, concurrency))
+    console.print(f"Snapshot: {output}")
+    console.print(
+        f"Targets: {result['targets']}, downloaded: {result['downloaded']}, "
+        f"HTTP 2xx: {result['http_success']}"
+    )
+
+
 @main.command()
 @click.option("--input", "input_file", type=str, default="harvested_streams.json")
 @click.option("--timeout", type=float, default=DEFAULT_TIMEOUT)

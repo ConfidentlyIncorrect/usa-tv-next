@@ -1,6 +1,6 @@
 # USA TV Next
 
-293 live US TV channels across 10 genres: Entertainment (81), Sports (51), Lifestyle (37), News (26), Documentaries (23), Kids (21), Latino (18), Music (17), Premium (13), Local (6).
+281 live US TV channels across 10 genres: Entertainment (79), Sports (48), Lifestyle (35), News (25), Documentaries (23), Kids (20), Latino (18), Music (16), Premium (11), Local (6).
 
 This repo ships the addon in **two modes**:
 
@@ -19,14 +19,14 @@ This addon is one piece of a self-hosted stack built to run together, feeding a 
 | --- | --- |
 | **[NuvioTV](https://github.com/ConfidentlyIncorrect/NuvioTV/tree/custom)** | The Android TV client. Renders this addon's live `epgSchedule` guide; also adds Cinemeta `#DUPE#` title reconstruction, episode/season/series scope search, and player fixes (CEA-608 captions, live-HLS recovery, DV/MKV). |
 | **[AIOStreams](https://github.com/ConfidentlyIncorrect/AIOStreams/tree/custom)** | On-demand movie/series aggregator — torrents (Torrentio/Comet) + a self-hosted Prowlarr → NZBGeek usenet pipeline, all resolved through TorBox. |
-| **usa-tv-next** *(this repo)* | Live US TV — ~293 channels, merged multi-source EPG, DaddyLive/iptv-org stream redundancy. |
+| **usa-tv-next** *(this repo)* | Live US TV — 281 channels, merged multi-source EPG, dynamic and harvested stream redundancy. |
 | **[Comet (fork)](https://github.com/ConfidentlyIncorrect/comet/tree/tvdb-dupe-fix)** | Torrent-scraper addon (currently paused). |
 
 NuvioTV is the on-screen client; this addon and AIOStreams are the two content sources behind it (live TV here, on-demand there). Both share the same `#DUPE#` philosophy — NuvioTV reconstructs duplicate-IMDb titles client-side for display, AIOStreams resolves them server-side so searches use the real title. Supporting infra (Prowlarr + NZBGeek, TorBox, Caddy) runs on a single VPS.
 
 ## Install (static)
 
-Streams-only addon served straight from GitHub raw — no server, no live guide. Reflects the current **293-channel** catalog with Pluto removed. For live EPG (Now Playing / schedules) and quality-first stream ordering, use the Combined Docker server below instead.
+Streams-only addon served straight from GitHub raw — no server, no live guide. Reflects the current **281-channel** curated catalog with Pluto removed. For live EPG (Now Playing / schedules) and quality-first stream ordering, use the Combined Docker server below instead.
 
 Stremio app (desktop / Android) — paste into the addon search bar, or open:
 
@@ -53,7 +53,7 @@ Or pull the prebuilt image published by CI:
 docker run -d -p 7001:7001 --memory=4g ghcr.io/confidentlyincorrect/usa-tv-next:latest
 ```
 
-**Hybrid data layer:** bundled local JSON (in the image) is the offline baseline; an interval (`DATA_REFRESH_HOURS`) fetches the latest roster from GitHub and writes an emergency cache to the `usatv-cache` volume. Read precedence is **live fetch → emergency cache → bundled local**, so the addon keeps working if GitHub access is lost. The EPG is fetched on `EPG_REFRESH_HOURS` and its matched subset is cached to disk for cold-start resilience.
+**Hybrid data layer:** bundled local JSON (in the image) is the offline baseline; when `DATA_REMOTE_ENABLE=1`, an interval (`DATA_REFRESH_HOURS`) fetches the latest roster from GitHub and writes an emergency cache to the `usatv-cache` volume. Read precedence is **live fetch → emergency cache → bundled local**. Set `DATA_REMOTE_ENABLE=0` when a deployed image contains curated data not yet published to `GITHUB_RAW_BASE`; bundled roster/stream files then remain authoritative and stale cache data is ignored.
 
 | Variable | Default | Purpose |
 |---|---|---|
@@ -65,6 +65,7 @@ docker run -d -p 7001:7001 --memory=4g ghcr.io/confidentlyincorrect/usa-tv-next:
 | `SD_DAYS` / `SD_TRANSPORT` / `SD_LINEUP` | `2` / auto / all | Days of guide / transport override / restrict to one lineup |
 | `STREAM_SORT` | `quality` | `quality` = order feeds FHD>HD>SD>Audio (tvpass tiebreaker); `data` = keep harvester order |
 | `GITHUB_RAW_BASE` | this repo @ `main` | Source for the roster/stream fetch leg |
+| `DATA_REMOTE_ENABLE` | `1` | `0` disables remote roster/stream replacement and makes bundled data authoritative |
 | `DATA_REFRESH_HOURS` / `EPG_REFRESH_HOURS` | `6` / `6` | Roster + EPG re-fetch intervals |
 | `RESPONSE_CACHE_SECS` | `300` | `cacheMaxAge` on catalog/meta/stream responses |
 | `STREAM_BLOCKLIST_HOSTS` | `pluto.tv` | Stream hosts never served (comma-separated) |
@@ -73,12 +74,15 @@ docker run -d -p 7001:7001 --memory=4g ghcr.io/confidentlyincorrect/usa-tv-next:
 | `PROXY_FORCE_HOSTS` | _(empty)_ | Extra host/URL substrings to force through the proxy |
 | `PROXY_DISABLE` | _(unset)_ | `1` turns the proxy off (fragile feeds served direct, sorted last) |
 | `PROXY_MANIFEST_TTL_MS` / `PROXY_MASTER_TTL_MS` | `2000` / `15000` | Micro-cache TTL for proxied media / master playlists |
-| `DLHD_ENABLE` | `1` (on) | DaddyLive resolver — restores the ~71 channels that went dark when tvpass died. `0` disables |
-| `DLHD_INCLUDE_EXTRA` | `1` (on) | Also offers DaddyLive as an HD alternate on the 59 channels that still have a free feed (130 mapped total). `0` = DARK channels only |
+| `DLHD_ENABLE` | `1` (on) | DaddyLive resolver — supplies the 95 channels with no retained static feed. `0` disables |
+| `DLHD_INCLUDE_EXTRA` | `1` (on) | Also offers DaddyLive as an HD alternate on 36 channels with a working static feed (131 mapped total). `0` = DARK channels only |
 | `DLHD_BASE` / `DLHD_EMBED_HOST` | `https://dlhd.pk` / _(auto)_ | Follow DaddyLive domain rotations without a code change |
 | `DLHD_TOKEN_MARGIN_MS` / `DLHD_RESOLVE_TIMEOUT_MS` | `120000` / `15000` | Re-resolve margin before the ~58 min token expiry / resolve timeout |
 | `DLHD_OUTBOUND_PROXY` | _(unset)_ | Split-tunnel: route **only** DaddyLive traffic through an HTTP proxy on a residential/VPN exit (e.g. a `gluetun` sidecar at `http://gluetun:8888`). Fixes datacenter/VPS IP blocks of DaddyLive's embed/CDN; everything else stays direct |
 | `PROXY_VPN_HOSTS` | `toonamiaftermath.com` | Extra non-DaddyLive hosts to ALSO route through `DLHD_OUTBOUND_PROXY` (for feeds that reject datacenter IPs, e.g. the Toonami Aftermath origin). Comma-separated substrings; no effect unless the VPN proxy is set |
+| `DAMITV_ENABLE` | `1` (on) | Enables manually vetted persistent Damitv channels; `0` disables |
+| `DAMITV_BASE` | `https://damitv.st` | Damitv API base, configurable for a domain rotation |
+| `DAMITV_TOKEN_MARGIN_MS` / `DAMITV_RESOLVE_TIMEOUT_MS` | `300000` / `15000` | Re-resolve margin before signed HLS expiry / API timeout |
 | `TZ` | `America/Denver` | Schedule display timezone |
 | `LOG_LEVEL` | `info` | Set `debug` for per-request routing/cache/fetch logs |
 | `NODE_OPTIONS` | `--max-old-space-size=3072` | Headroom for the ~188 MB EPG parse (needs ~4 GB) |
@@ -108,13 +112,15 @@ Programmes from every source share one store via `sd:`/`pw:`/`es:` id prefixes. 
 | EPG match report | `/debug/epg?full=1` |
 | Channel schedule dump | `/debug/schedule?ch={name}` |
 | DaddyLive resolve test | `/debug/dlhd?id={dlhd numeric id}` |
+| Damitv resolve test | `/debug/damitv?id={Damitv source id}` |
 
 ## Channel streams & sources
 
 Each channel aims to offer **more than one stream to pick from** for reliability. Streams come from several layers, merged and quality-sorted (FHD > HD > SD) at request time:
 
 - **Harvested feeds** — the curated static streams in `stream/tv/*.json` (iptv-org, famelack, FAST platforms, …), kept fresh by the harvester.
-- **DaddyLive resolver** (`server/src/dlhd.js`) — when the proxy is active, **130 channels** get a live-resolved DaddyLive HD feed (`/dlhd/<id>/master.m3u8`). This **restored the ~71 premium/cable/sports channels that went dark when tvpass.org died** (ESPN family, RSNs, A&E/AMC/TBS/TNT/USA, CNBC/MSNBC, the HBO/Showtime/Starz/Cinemax multiplexes, Disney/Nick kids, Telemundo…) and adds an HD alternate to channels that still have a free feed (`DLHD_INCLUDE_EXTRA`, on by default). DaddyLive tokens are minted fresh per request and re-resolved before they expire, so playback is seamless; the client only ever sees a clean HLS URL on your host, so **the player needs no special handling**. Test a channel with `/debug/dlhd?id=<N>`.
+- **DaddyLive resolver** (`server/src/dlhd.js`) — when the proxy is active, **131 channels** get a live-resolved DaddyLive HD feed (`/dlhd/<id>/master.m3u8`): 95 channels with no retained static feed and 36 redundant alternates (`DLHD_INCLUDE_EXTRA`, on by default). DaddyLive tokens are minted fresh per request and re-resolved before they expire; the client only sees a clean HLS URL on your host. Test a channel with `/debug/dlhd?id=<N>`.
+- **Damitv resolver** (`server/src/damitv.js`) — manually allowlisted persistent feeds get signed URLs refreshed before expiry and are re-served through `/damitv/<source-id>/master.m3u8`. The initial vetted addition is Rally TV; Damitv's duplicate DaddyLive roster, temporary events, dead feeds, and image-only loops are intentionally excluded.
 - **Cross-source enrichment** — `iptvorg-enrich` and `famelack-enrich` add ffprobe-validated, deduped second feeds to existing channels.
 
 Dead providers are filtered at runtime: blocklisted hosts (`pluto.tv`, the offline `tvpass.org`/`thetvapp.to`) and any feed a prior `consolidate` run tagged `[DEAD]` are never served. A handful of niche channels remain single-source where no second provider exists.
@@ -178,6 +184,7 @@ uv run python -m harvester test               # ffprobe-test (DNS pre-filter + f
 uv run python -m harvester inject             # match working streams to catalog channels
 uv run python -m harvester run                # harvest + test + report in sequence
 uv run python -m harvester prune              # remove dead streams from the catalog
+uv run python -m harvester snapshot-sources   # archive configured + legacy source endpoints with hashes
 
 # providers / maintenance
 uv run python -m harvester clean              # purge blocklisted providers (Pluto) + reorder tvpass-first
@@ -197,13 +204,13 @@ Notes:
 
 ## Sources
 
-167 sources in `sources.yaml` across 6 handler types (`github`, `direct`, `website`, `telegram`, `paste`, `famelack`). Notably **famelack** (`harvester/sources/famelack.py`) reads famelack.com's full dataset (1361 US channels with direct stream URLs) straight from its public GitHub repo — no scraping. Pluto TV sources have been removed.
+167 sources in `sources.yaml` across 6 handler types (`github`, `direct`, `website`, `telegram`, `paste`, `famelack`). Notably **famelack** (`harvester/sources/famelack.py`) reads famelack.com's current US dataset (1,541 channels in the 2026-07-15 snapshot) straight from its public GitHub repo — no scraping. Pluto TV sources have been removed.
 
 ## Structure
 
 ```
 manifest.json
-catalog/tv/all.json                  # roster (293 channels)
+catalog/tv/all.json                  # roster (281 channels)
 catalog/tv/all/genre={Genre}.json    # per-genre slices
 meta/tv/ustv-{uuid}.json
 stream/tv/ustv-{uuid}.json

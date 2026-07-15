@@ -30,6 +30,8 @@ services:
       # Repo the server fetches the latest roster + stream files from (the "fetch" leg
       # of the hybrid data layer). Bundled local files are the offline baseline.
       - GITHUB_RAW_BASE=https://raw.githubusercontent.com/ConfidentlyIncorrect/usa-tv-next/main
+      # Keep the audited bundled roster authoritative until this exact dataset is published.
+      - DATA_REMOTE_ENABLE=0
       - DATA_REFRESH_HOURS=6
       - EPG_REFRESH_HOURS=6
       # Stream proxy: makes fragile feeds (plain-HTTP / raw-IP / odd-port / header-gated)

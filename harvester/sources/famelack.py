@@ -4,9 +4,11 @@ scraping the Cloudflare-fronted SPA.
 
 US data: tv/compressed/countries/us.json (gzip), a list of channels shaped:
     {"nanoid": "...", "name": "3ABN English",
-     "stream_urls": ["https://.../playlist.m3u8"],
-     "youtube_urls": [], "languages": ["eng"], "country": "us",
-     "isGeoBlocked": false}
+     "sources": {"streams": ["https://.../playlist.m3u8"]},
+     "languages": ["eng"], "country": "us", "isGeoBlocked": false}
+
+Older snapshots used top-level ``stream_urls``.  Accept both forms so source snapshots
+remain comparable and an upstream schema migration cannot silently produce zero streams.
 
 We yield one ParsedStream per (channel, direct stream_url) so the normal
 harvest -> test (ffprobe) -> inject pipeline matches them to catalog channels by name.
@@ -34,6 +36,14 @@ DEFAULT_URL = (
     "https://raw.githubusercontent.com/famelack/famelack-data/main/"
     "tv/compressed/countries/us.json"
 )
+
+
+def channel_stream_urls(channel: dict) -> list[str]:
+    """Return direct stream URLs from the current or legacy Famelack schema."""
+    current = (channel.get("sources") or {}).get("streams") or []
+    legacy = channel.get("stream_urls") or []
+    values = current or legacy
+    return [u for u in values if isinstance(u, str) and u.startswith("http")]
 
 
 class FamelackSource(BaseSource):
@@ -72,7 +82,6 @@ class FamelackSource(BaseSource):
             name = (ch.get("name") or "").strip()
             if not name:
                 continue
-            for u in ch.get("stream_urls") or []:
-                if isinstance(u, str) and u.startswith("http"):
-                    out.append(ParsedStream(url=u, channel_name=name, source_id=sid))
+            for u in channel_stream_urls(ch):
+                out.append(ParsedStream(url=u, channel_name=name, source_id=sid))
         return out

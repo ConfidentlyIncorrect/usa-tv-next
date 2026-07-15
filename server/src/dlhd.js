@@ -14,9 +14,9 @@
 //   -> .ts segments (disguised as .pdf/.js on ANOTHER rotating host).
 //
 // KEY FACTS THAT SHAPE THE DESIGN
-//   • NO referer/origin lock anywhere — auth is entirely the in-URL md5/expires token, so
-//     our existing /proxy (which only adds a UA + same-origin referer) plays them fine and
-//     the CLIENT (NuvioTV) needs ZERO changes: it just gets a clean HLS URL on our host.
+//   • The CDN requires the rotating embed page as Referer in addition to the in-URL token.
+//     We preserve that referer through master, media, segment, key and map requests while
+//     the CLIENT (NuvioTV) still gets a clean HLS URL on our host and needs ZERO changes.
 //   • The token expires ~58 min after it's minted, and is minted FRESH per resolve. So a
 //     URL can't be statically injected (it dies within the hour) — it must be resolved live
 //     and RE-resolved before expiry for long sessions.
@@ -60,7 +60,7 @@ function mappedCount() {
 }
 
 // --- resolve cache ----------------------------------------------------------
-// dlhd id -> { master, media, streamInf, expiresMs, resolvedAt }
+// dlhd id -> { master, media, streamInf, referer, expiresMs, resolvedAt }
 const _cache = new Map();
 const _inflight = new Map();   // dlhd id -> Promise (single-flight)
 
@@ -197,20 +197,23 @@ async function _doResolve(dlhdId) {
     const master = _extractMasterUrl(e.text);
     if (!master) throw new Error(`no m3u8 in embed for id=${dlhdId} (${new URL(embedUrl).host})`);
 
-    const mResp = await _get(master, `${cfg.DLHD_BASE}/`);
+    // The CDN started enforcing the rotating embed URL as Referer. The old dlhd site-root
+    // referer now returns 403 even though the signed URL itself is valid.
+    const referer = e.finalUrl || embedUrl;
+    const mResp = await _get(master, referer);
     const { streamInf, media } = _parseMaster(mResp.text, mResp.finalUrl);
     if (!media) throw new Error(`no media playlist in master for id=${dlhdId}`);
 
     const expiresMs = _expiryMsFromUrl(media) || _expiryMsFromUrl(master)
         || (Date.now() + 50 * 60 * 1000);  // assume ~50min if untokenized
-    const entry = { master, media, streamInf, expiresMs, resolvedAt: Date.now() };
+    const entry = { master, media, streamInf, referer, expiresMs, resolvedAt: Date.now() };
     log.info(`resolved id=${dlhdId} in ${Date.now() - t0}ms via ${new URL(embedUrl).host} `
         + `(expires ${new Date(expiresMs).toISOString()}, cdn ${new URL(media).host})`);
     return entry;
 }
 
 /**
- * Resolve (cached) a dlhd id to { master, media, streamInf, expiresMs }. Re-resolves when the
+ * Resolve (cached) a dlhd id to { master, media, streamInf, referer, expiresMs }. Re-resolves when the
  * cached token is within DLHD_TOKEN_MARGIN_MS of expiry. Single-flight: concurrent callers for
  * the same id share one in-flight resolve. Throws on resolve failure (no cache entry to serve).
  */
@@ -270,7 +273,7 @@ async function _handleMedia(req, res, dlhdId) {
     req.on('close', onClose);
     try {
         const resp = await fetch(r.media, {
-            headers: _headers(`${cfg.DLHD_BASE}/`), redirect: 'follow', signal: controller.signal,
+            headers: _headers(r.referer), redirect: 'follow', signal: controller.signal,
             dispatcher: outbound.dlhdDispatcher(),
         });
         const text = await resp.text();
@@ -279,7 +282,11 @@ async function _handleMedia(req, res, dlhdId) {
         // so the proxy egresses those CDN fetches through the same VPN/proxy as the resolver (the
         // CDN drops VPS IPs too). Segments aren't header-locked, but proxying keeps the client on
         // our host and reuses the proxy's Range/error handling + manifest micro-cache.
-        const rewritten = proxy.rewriteManifest(text, resp.url || r.media, '?o=dlhd');
+        const rewritten = proxy.rewriteManifest(
+            text,
+            resp.url || r.media,
+            `?o=dlhd&ref=${proxy.encodeTarget(r.referer)}`,
+        );
         _mediaCache.set(dlhdId, { body: rewritten, expires: Date.now() + _MEDIA_TTL_MS });
         _sendManifest(res, rewritten);
     } finally {
@@ -323,6 +330,7 @@ async function debugResolve(dlhdId) {
         master: r.master,
         media: r.media,
         cdnHost: (() => { try { return new URL(r.media).host; } catch { return null; } })(),
+        refererHost: (() => { try { return new URL(r.referer).host; } catch { return null; } })(),
         streamInf: r.streamInf,
         expires: new Date(r.expiresMs).toISOString(),
         ttlSeconds: Math.round((r.expiresMs - Date.now()) / 1000),

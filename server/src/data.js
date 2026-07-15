@@ -128,6 +128,10 @@ async function fetchRemoteRoster() {
  * Safe to call repeatedly (used by the cron schedule).
  */
 async function refreshRoster() {
+    if (!cfg.DATA_REMOTE_ENABLE) {
+        log.debug('Remote roster refresh disabled; keeping bundled roster authoritative');
+        return false;
+    }
     lastFetchAttemptAt = Date.now();
     try {
         const metas = await log.timed('roster fetch', () => fetchRemoteRoster());
@@ -160,8 +164,11 @@ async function initRoster() {
     const local = loadLocalRoster();
     const cache = loadEmergencyCache();
 
-    // Pick the newer of (bundled local, emergency cache) as the offline baseline.
-    if (cache && local) {
+    // A deliberately local-authoritative deployment must not resurrect a stale
+    // remotely-fetched cache. Otherwise pick the newest offline baseline.
+    if (!cfg.DATA_REMOTE_ENABLE && local) {
+        setRoster(local.metas, 'local', local.mtimeMs);
+    } else if (cache && local) {
         if (cache.fetchedAt >= local.mtimeMs) {
             setRoster(cache.metas, 'cache', cache.fetchedAt);
         } else {
@@ -176,8 +183,9 @@ async function initRoster() {
         log.error('No roster available from cache OR bundled local files — starting empty');
     }
 
-    // Now try to get the very latest. If this fails we keep the baseline above.
-    await refreshRoster();
+    // Now try to get the very latest. If disabled or failed, keep the baseline above.
+    if (cfg.DATA_REMOTE_ENABLE) await refreshRoster();
+    else log.info('Remote data fetch disabled; bundled roster and stream files are authoritative');
     log.info(`Roster initialised: ${roster.length} channels (current source: "${rosterSource}")`);
 }
 
@@ -242,6 +250,10 @@ async function getStreams(id) {
     }
 
     // 4. lazy GitHub fetch (last resort)
+    if (!cfg.DATA_REMOTE_ENABLE) {
+        log.warn(`No streams resolvable for ${id} (inline/cache/local empty; remote data disabled)`);
+        return [];
+    }
     try {
         const remote = await fetchRemoteStreams(id);
         streamCache.set(id, { streams: remote, fetchedAt: Date.now(), source: 'fetch' });

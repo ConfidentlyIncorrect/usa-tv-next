@@ -59,10 +59,10 @@ Run stream testing on macmini for speed: `ssh ben@macmini`. Requires `eval "$(/o
 
 ```
 manifest.json              — Stremio addon manifest (id: community.usa-tv-next)
-catalog/tv/all.json        — Master catalog: 293 channels with metadata + streams
+catalog/tv/all.json        — Master catalog: 281 channels with metadata + streams
 catalog/tv/all/genre=*.json — Per-genre catalog slices (10 genres)
-meta/tv/ustv-*.json        — Individual channel meta files (293, 1:1 with catalog)
-stream/tv/ustv-*.json      — Per-channel stream files (293, 1:1 with catalog; no empty placeholders)
+meta/tv/ustv-*.json        — Individual channel meta files (281, 1:1 with catalog)
+stream/tv/ustv-*.json      — Per-channel stream files (281, 1:1 with catalog; empty files are dynamically covered)
 sources.yaml               — 167 source definitions (GitHub repos, direct URLs, websites, Telegram, paste)
 harvester/                 — Python scraping + testing + injection pipeline
 data/                      — Harvested streams, test results, state (gitignored)
@@ -83,35 +83,35 @@ docker-compose.yml         — Local/host deployment (port 7001, 4 GB, cache vol
 
 ## Channels
 
-293 US TV channels across 10 genres. Channels are hardcoded — adding/removing requires editing catalog files. Meta and stream files are kept 1:1 with the catalog (no orphan/placeholder files).
+281 US TV channels across 10 genres. Channels are hardcoded — adding/removing requires editing catalog files. Meta and stream files are kept 1:1 with the catalog; an empty static stream file is valid only when the channel has dynamic provider coverage.
 
 | Genre | Count |
 |-------|-------|
-| Entertainment | 81 |
-| Sports | 51 |
-| Lifestyle | 37 |
-| News | 26 |
+| Entertainment | 79 |
+| Sports | 48 |
+| Lifestyle | 35 |
+| News | 25 |
 | Documentaries | 23 |
-| Kids | 21 |
+| Kids | 20 |
 | Latino | 18 |
-| Music | 17 |
-| Premium | 13 |
+| Music | 16 |
+| Premium | 11 |
 | Local | 6 |
 
 Each channel is a Stremio meta object: `{id, name, genres, poster, posterShape, streams}`. Stream entries: `{url, behaviorHints: {notWebReady, proxyHeaders}, name: "{Channel}[ - {Region}] ({FHD|HD|SD|Audio})", description: "{Provider}"}` — the channel name is always in the big label, the region is added for feed-variants, and the provider/supplier goes in the small description (see `harvester/consolidate.py:build_display`).
 
 ## Sources (`sources.yaml`)
 
-167 sources across 5 types:
+167 sources across 6 types:
 
 | Type | Count | Handler | Notes |
 |------|-------|---------|-------|
-| github | 72 | `sources/github.py` | Raw file fetch, tree API for globs, brute-force common M3U paths as fallback |
+| github | 71 | `sources/github.py` | Raw file fetch, tree API for globs, brute-force common M3U paths as fallback |
 | direct | 56 | `sources/direct.py` | Direct M3U/M3U8 URLs |
 | website | 30 | `sources/website.py` | HTML scraping for M3U links + Xtream Codes URLs |
 | telegram | 8 | `sources/telegram.py` | Public Telegram channel scraping |
 | paste | 1 | `sources/paste.py` | Paste site scraping |
-| famelack | 1 | `sources/famelack.py` | famelack.com's full dataset, gzipped JSON on GitHub (famelack/famelack-data); 1361 US channels with direct stream_urls + languages (incl. non-English). Drops isGeoBlocked unless `strategy: include_geoblocked` |
+| famelack | 1 | `sources/famelack.py` | Famelack's US dataset, gzipped JSON on GitHub (1,541 channels on 2026-07-15); current URLs are under `sources.streams`, with legacy `stream_urls` compatibility. Drops `isGeoBlocked` unless `strategy: include_geoblocked` |
 
 GitHub source strategy: try literal paths first, then tree API (needs `GITHUB_TOKEN`, rate-limited at 60/hr unauthenticated), then brute-force ~55 common M3U filenames on both `main` and `master` branches.
 
@@ -119,7 +119,8 @@ GitHub source strategy: try literal paths first, then tree API (needs `GITHUB_TO
 
 ```
 harvester/
-  cli.py        — Click CLI: harvest, test, report, run commands
+  cli.py        — Click CLI: harvest, test, report, run, and source snapshot commands
+  snapshot_sources.py — Reproducible local capture of configured + legacy source endpoints
   config.py     — Paths, timeouts (8s default), concurrency (harvest=10, test=50)
   models.py     — Pydantic models: SourceConfig, ParsedStream, StreamTestResult, CodecInfo
   parser.py     — M3U parser (EXTINF attrs, stream URLs, Xtream Codes detection)
@@ -175,14 +176,15 @@ server/src/
   channelMap.js   — fuzzy match roster->EPG (130+ overrides); roster from data.js
   manifest.js     — combined manifest (catalog id "all"; resources catalog+meta+stream)
   catalogHandler.js / metaHandler.js — EPG-enriched catalog + meta
-  streamHandler.js — serves streams via data.getStreams() (+ adds DaddyLive fallback streams)
+  streamHandler.js — serves streams via data.getStreams() (+ adds dynamic-provider streams)
   proxy.js        — HLS-rewriting stream proxy (/proxy) for fragile/header-gated feeds
   dlhd.js         — DaddyLive live resolver + re-serving HLS endpoints (/dlhd) — see below
-  dlhdChannels.js — roster id -> dlhd numeric id map (71 DARK + 59 EXTRA, US-feed pinned)
+  dlhdChannels.js — roster id -> dlhd numeric id map (95 DARK + 36 EXTRA, US-feed pinned)
+  damitv.js       — allowlisted persistent Damitv resolver + stable HLS endpoints (/damitv)
   addon.js / server.js — builder wiring + startup + refresh intervals + serveHTTP
 ```
 
-**Hybrid data layer (`data.js`).** Roster read precedence is **live GitHub fetch → emergency cache file → bundled local file**, so the addon survives loss of GitHub access. A `DATA_REFRESH_HOURS` interval re-fetches the roster and rewrites the emergency cache (on the `usatv-cache` volume). Per-channel stream resolution: inline roster `streams` → in-memory cache → bundled local `stream/tv/{id}.json` → lazy GitHub fetch. EPG refreshes on `EPG_REFRESH_HOURS`; the matched-channel subset is persisted to disk for cold-start resilience.
+**Hybrid data layer (`data.js`).** With `DATA_REMOTE_ENABLE=1`, roster read precedence is **live GitHub fetch → emergency cache file → bundled local file**, and missing local streams may lazy-fetch from GitHub. Set it to `0` when the deployed curated bundle is ahead of the published branch; bundled roster/stream files become authoritative and stale emergency roster data is ignored. EPG refreshes independently on `EPG_REFRESH_HOURS`.
 
 **EPG source (`epg.js` + `sd.js`) — MERGED 3-TIER.** Every refresh fetches all configured sources and merges them by priority: **(1) Schedules Direct** (accurate, feed/timezone-correct), **(2) epg.pw** (`EPG_URL`), **(3) epgshare01 + i.mjh.nz** (`EPGSHARE_URLS` default = epgshare01 US2 + i.mjh.nz Samsung TV Plus / Plex / Pluto / Roku — the FAST/streaming long tail neither of the above carries: AsianCrush, RetroCrush, Dark Matter, XITE, FilmRise, Comet, Buzzr, Vevo, …).
 
@@ -194,7 +196,7 @@ server/src/
 
 ### DaddyLive resolver (`dlhd.js` + `dlhdChannels.js`) — restores the tvpass-dark tier
 
-When tvpass.org died, **71 premium/cable/sports channels lost their only stream** (ESPN family, RSNs, A&E/AMC/TBS/TNT/USA, CNBC/MSNBC/Fox Business, the HBO/Showtime/Starz/Cinemax multiplexes, Disney/Nick kids, Telemundo, …). DaddyLive (`dlhd.pk`) carries that exact tier as stable 24/7 channels, so the server resolves it **live at request time** and re-serves it as clean HLS through the existing proxy.
+DaddyLive (`dlhd.pk`) covers the roster's cable/premium/sports tier that lacks a retained static origin, so the server resolves it **live at request time** and re-serves it as clean HLS through the existing proxy.
 
 **The chain (verified end-to-end).** `dlhd.pk/watch.php?id=N` → iframe `stream/stream-N.php` (obfuscated player) → iframe `https://<rotating-embed-host>/premiumtv/daddy3.php?id=N`; the embed page **base64-encodes (`atob`) the final media URL**, e.g. `https://<cdn>/premiumN/index.m3u8?md5v1=..&md5v2=..&expires=<unixSec>`. That master points at one media playlist (`tracks-v1a1/mono.m3u8?md5=..&expires=..`) whose `.ts` segments are disguised as `.pdf`/`.js` on **another** rotating host.
 
@@ -204,7 +206,7 @@ When tvpass.org died, **71 premium/cable/sports channels lost their only stream*
 - `GET /dlhd/<id>/master.m3u8` → a **synthesized** master (re-emits the upstream `#EXT-X-STREAM-INF` for codec/res metadata) whose only variant points at our own media endpoint — so the player polls **us**, never the expiring CDN URL.
 - `GET /dlhd/<id>/media.m3u8` → fetches the **current** (cached, auto-refreshed-before-expiry) media playlist and rewrites every segment through `/proxy` (via `proxy.rewriteManifest`). Because this endpoint re-resolves under the hood, **token expiry is invisible to the player and sessions run indefinitely**.
 
-Resolution is **cached per dlhd id + single-flighted** (concurrent callers share one in-flight resolve; re-resolve only fires within `DLHD_TOKEN_MARGIN_MS` of expiry), so dlhd.pk is hit at most ~once/hour/channel. `streamHandler` adds the dlhd master URL as a stream entry (`"{Channel} (HD)"` / desc `DaddyLive`) for any mapped channel when the proxy is active; `normalizeStream` never re-wraps our own `/dlhd` URL. The map lives in `dlhdChannels.js`: **DARK** (71 — the tvpass-dark channels, always on) + **EXTRA** (59 — channels that still have a free feed but also exist on dlhd; **on by default** so every match gets a DaddyLive HD alternate — set `DLHD_INCLUDE_EXTRA=0` for DARK-only). 130 channels mapped total. dlhd ids are the `N` in `watch.php?id=N`, **pinned to the US feed** (e.g. ESPN USA=44), never a foreign variant. Regenerate the map with `data/dlhd_match.js` + `data/dlhd_gen_module.js` (both gitignored helpers; the matcher detects dark channels = zero **servable** streams — i.e. not blocklisted AND not `[DEAD]`-tagged — and name-matches them against a scraped `data/dlhd_id_name.tsv`).
+Resolution is **cached per dlhd id + single-flighted** (concurrent callers share one in-flight resolve; re-resolve only fires within `DLHD_TOKEN_MARGIN_MS` of expiry), so dlhd.pk is hit at most ~once/hour/channel. `streamHandler` adds the dlhd master URL as a stream entry (`"{Channel} (HD)"` / desc `DaddyLive`) for any mapped channel when the proxy is active; `normalizeStream` never re-wraps our own `/dlhd` URL. The map lives in `dlhdChannels.js`: **DARK** (95 channels with no retained static stream, always on) + **EXTRA** (36 channels with a working static feed; **on by default** — set `DLHD_INCLUDE_EXTRA=0` for DARK-only), 131 channels total. Every mapped id was checked against the current directory on 2026-07-15 and pinned to the intended US feed. Regenerate the map with `data/dlhd_match.js` + `data/dlhd_gen_module.js` (both gitignored helpers; the matcher detects dark channels = zero **servable** streams — i.e. not blocklisted AND not `[DEAD]`-tagged — and name-matches them against a scraped `data/dlhd_id_name.tsv`).
 
 > **Dead-feed handling.** `streamHandler` drops any stream a prior `consolidate` run tagged dead (`name` prefixed `[DEAD]`) alongside the host blocklist — so a channel whose only static feed is dead (e.g. **Telemundo**, whose lone `nbcu-telemundoflorida-firetv.amagi.tv` feed is a frozen "black then exit" loop) is treated as dark, falls back to DaddyLive, and never offers the dead URL. The matcher applies the same rule, so such channels land in DARK rather than being miscounted as live.
 
@@ -212,7 +214,13 @@ Resolution is **cached per dlhd id + single-flighted** (concurrent callers share
 
 > **Split-tunnel egress (`DLHD_OUTBOUND_PROXY` + `outbound.js`).** DaddyLive's premium **embed + CDN** origins (raw nginx VPS IPs, IPv4-only, not Cloudflare) **drop datacenter/VPS egress IPs** — the main `dlhd.pk` site loads but the embed/CDN time out (`cannot reach <host>: UND_ERR_CONNECT_TIMEOUT`). They work from residential IPs. Routing the *whole* addon through a VPN is undesirable (it'd tunnel EPG/GitHub/iptv-org/Tubi and can break the public Funnel inbound), so we **split-tunnel only DaddyLive**: set `DLHD_OUTBOUND_PROXY` to an HTTP(S) proxy on a residential/VPN exit (e.g. a `gluetun` sidecar's `http://gluetun:8888`) and `outbound.js` hands an undici `ProxyAgent` as the `dispatcher` to **every** dlhd fetch — the resolver chain, the media-playlist fetch, AND the CDN segments. Segments reach the proxy because `dlhd.js` rewrites the media playlist via `proxy.rewriteManifest(text, url, '?o=dlhd')`, and `proxy.handle` routes any `?o=dlhd`-tagged upstream through the same dispatcher; all other proxied feeds (tvpass/XUMO/…) stay direct. Needs the `undici` dep (added) — Node bundles undici for `fetch` but `ProxyAgent` needs the package; if it's missing, `outbound.js` logs once and falls back to direct. `docker-compose.yml` has a commented gluetun sidecar template (WireGuard/OpenVPN). **`PROXY_VPN_HOSTS`** (default `toonamiaftermath.com`) routes extra *non-dlhd* proxied hosts through the same VPN — for fragile feeds that also reject datacenter IPs (the fan-run Toonami origin 500s from a VPS but serves residentially); `proxy.handle` picks the VPN dispatcher when the target host matches, so the whole master/variant/segment chain follows. No effect unless `DLHD_OUTBOUND_PROXY` is set. The "cannot reach ...: ENOTFOUND/EAI_AGAIN" variant instead means a filtering DNS (Pi-hole/NextDNS) is blocking the domains; "ECONNREFUSED"/timeout = the IP block this knob fixes.
 
-**4 dark channels can't be restored** (genuinely absent from dlhd AND iptv-org): BET Her, Hallmark Family, MeTV Toons, MTV2. (TV Land was a normalizer miss — "TV Land"→"land" vs dlhd's spaceless "TVLAND"→"tvland" — now pinned manually to id 342. MotorTrend isn't on dlhd but its iptv-org/Tubi FAST feed is live — injected into its stream file, force-proxied as a Yospace SSAI host.) **Maintenance:** if the embed scheme changes (a few times/year), update the `atob`/embed-URL extraction in `dlhd.js` (`_extractEmbedUrl` / `_extractMasterUrl`); the well-trodden open-source DaddyLive resolvers track the current scheme. Caveat: dlhd is a piracy re-aggregator — high coverage, lower long-term stability than a clean origin.
+Channels with neither a correctly identified live static origin nor a current DaddyLive mapping are not retained as dead roster entries. **Maintenance:** run `snapshot-sources`, audit stream identity as well as liveness, and reclassify `DARK`/`EXTRA` from the resulting stream files whenever mappings change. If the embed scheme changes, update the extraction in `dlhd.js` (`_extractEmbedUrl` / `_extractMasterUrl`). DaddyLive is a piracy re-aggregator, so its coverage is less stable than a clean origin.
+
+### Damitv persistent resolver (`damitv.js`)
+
+Damitv's main Live TV directory is a duplicate DaddyLive roster whose current playlist proxy returned HTTP 502 during the 2026-07-15 audit, so it is not imported. Its separate `/papi/api/streams` persistent entries must be identity-checked individually: several tested entries were dead or image-only loops. Rally TV was verified as real branded MPEG-TS video and is the initial allowlisted source.
+
+`damitv.js` resolves `/papi/extract-url/<source-id>` at request time, caches and single-flights the signed URL until `DAMITV_TOKEN_MARGIN_MS` before expiry, and exposes stable `/damitv/<source-id>/{master,media}.m3u8` endpoints. `streamHandler` only adds ids in `ROSTER_MAP`; never turn this into a blind event importer. Environment: `DAMITV_ENABLE`, `DAMITV_BASE`, `DAMITV_TOKEN_MARGIN_MS`, `DAMITV_RESOLVE_TIMEOUT_MS`. Diagnostic: `/debug/damitv?id=rally-tv`.
 
 ## Deployment
 

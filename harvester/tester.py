@@ -153,6 +153,7 @@ async def _hls_manifest_probe(url: str, timeout: float) -> tuple[str, str, bool]
 
 async def test_stream(url: str, timeout: float = 8.0) -> StreamTestResult:
     start = time.monotonic()
+    proc = None
     try:
         proc = await asyncio.create_subprocess_exec(
             "ffprobe",
@@ -267,6 +268,15 @@ async def test_stream(url: str, timeout: float = 8.0) -> StreamTestResult:
         )
 
     except asyncio.TimeoutError:
+        # wait_for(proc.communicate()) cancels the waiter, not the child process.  Leaving
+        # ffprobe alive here leaks one process per timeout and can make a large audit hang
+        # indefinitely after its Python task has ostensibly completed.
+        if proc is not None and proc.returncode is None:
+            proc.kill()
+            try:
+                await proc.wait()
+            except Exception:
+                pass
         elapsed_ms = int((time.monotonic() - start) * 1000)
         return StreamTestResult(
             url=url,

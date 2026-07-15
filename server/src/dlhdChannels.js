@@ -5,11 +5,10 @@
 // URL at request time. We deliberately pin the US feed (e.g. "ESPN USA"=44), never a
 // foreign variant. Regenerate after editing the dark/live sets; keep US-feed pins correct.
 //
-//   DARK  = roster channels that lost their only stream when tvpass.org died. These get a
-//           dlhd stream UNCONDITIONALLY (it's their sole source). 71 channels.
+//   DARK  = roster channels with no retained working static stream. These get a dlhd stream
+//           UNCONDITIONALLY (it's their sole current source). 95 channels.
 //   EXTRA = roster channels that STILL have a working free feed but ALSO exist on dlhd.
-//           OFF by default (don't add a piracy/rotating source to channels that work);
-//           enable with DLHD_INCLUDE_EXTRA=1 to offer a premium-source alternative. 59 channels.
+//           ON by default as a redundant source; set DLHD_INCLUDE_EXTRA=0 to disable. 36 channels.
 
 const DARK = {
     'ustv-b1b573fd-f41b-4b86-b857-a4340d586a1f': 302, // A&E -> A&E USA
@@ -17,61 +16,80 @@ const DARK = {
     'ustv-17c92d44-25c9-4461-a964-c6f098dc3b35': 923, // Altitude Sports -> Altitude Sports
     'ustv-17671b7d-f8ae-4724-8c7a-15de81021d82': 303, // AMC -> AMC USA
     'ustv-c6d77877-e2d9-48e4-8c7c-c659d1d1e8b1': 206, // American Heroes Channel -> AHC (American Heroes Channel)
+    'ustv-f60b61af-2484-4d52-956c-db6ba4a06d76': 304, // Animal Planet -> Animal Planet
     'ustv-3ea31538-b5ad-4dc2-b2a6-6f2b518a2e7d': 305, // BBC America -> BBC America (BBCA)
-    'ustv-f6141a0c-e163-49e8-b98c-ea2fb58feea3': 306, // BET -> BET USA
-    'ustv-cd865868-4b32-477d-b611-8d4c06ba1911': 307, // Bravo -> Bravo USA
+    'ustv-0710a105-0285-4ad7-ad52-57b74b7b4436': 397, // Big Ten Network -> BIG TEN Network (BTN USA)
+    'ustv-9f8101b3-a465-47e7-8554-d8bbd80cea08': 648, // Boomerang -> Boomerang
     'ustv-687ec2f8-0593-4a29-813d-1e5ae14edcf5': 750, // C-SPAN 1 -> C SPAN 1
+    'ustv-73bce33c-1a7e-47b9-938b-3c9cbf156c20': 339, // Cartoon Network -> Cartoon Network
+    'ustv-95d0df98-c758-46e4-af07-5b69dc1c3758': 52, // CBS -> CBS USA
+    'ustv-7ba81bf7-3bb4-43c1-946f-bfff70198dd9': 910, // CBS Sports Golazo Network -> CBS Sports Golazo
     'ustv-4aa99360-c3a8-447c-841f-f6f437851168': 308, // CBS Sports Network -> CBS Sports Network (CBSSN)
     'ustv-a7fa35a3-7f6c-4005-8b10-f9788f9dc5c4': 776, // Chicago Sports Network -> Chicago Sports Network
+    'ustv-f687826d-6325-47cf-afbb-0f91bc5ed5f9': 374, // Cinemax -> Cinemax USA
     'ustv-7511fa6f-93ad-4634-bd0a-43f80fea6ef3': 647, // CMT -> CMT USA
     'ustv-4f96f3dd-cbad-46ec-827d-3f607d0b0321': 309, // CNBC -> CNBC USA
     'ustv-184d76a1-c8dd-45ea-b447-761e7639791a': 697, // Cooking Channel -> Cooking Channel USA
     'ustv-c9ab10dd-a3d5-4b6c-ba5c-e7c8a9f9f811': 669, // Crime + Investigation -> Crime+ Investigation USA
     'ustv-a931a508-de1f-4c1e-81eb-f1abffd5e147': 300, // CW  -> CW USA
+    'ustv-fdd7d919-550f-4be5-b879-6654a5d66bfe': 651, // Destination America -> Destination America
+    'ustv-037691f3-c5f8-4d03-85bf-f0b099febe65': 313, // Discovery Channel -> Discovery Channel
     'ustv-f4ce7266-386e-4563-872e-21576026999a': 657, // Discovery Family -> Discovery Family
     'ustv-652e0700-d2c2-41b9-8e22-46a1e1ed9ea7': 311, // Discovery Life -> Discovery Life Channel
     'ustv-0119400b-71ba-42e0-a381-f77d42c861dd': 312, // Disney Channel -> Disney Channel
     'ustv-61f6cafc-dcd0-4924-8395-10c0b8fd0c9f': 652, // Disney Jr -> Disney JR
+    'ustv-b25e9331-bc95-4e31-afaf-54301ff1d1dd': 314, // Disney XD -> Disney XD
     'ustv-c9877c01-4a16-4361-a570-91de33741b62': 44, // ESPN -> ESPN USA
     'ustv-250ba0ff-f8f3-4083-a974-d4b5aca7272b': 45, // ESPN 2 -> ESPN2 USA
     'ustv-907e51ed-d969-4777-9930-bcdd094b3dd1': 375, // ESPN Deportes -> ESPN Deportes
     'ustv-330863a7-5ac0-4bc7-91bb-544166ccdb76': 288, // ESPNews -> ESPNews
-    'ustv-ae009881-1735-44e6-a236-1718b3619075': 891, // FanDuel Detroit -> FanDuel Sports Network Detroit
-    'ustv-338a5ad6-a8f7-48ea-891b-f99aac2af8d5': 893, // FanDuel Great Lakes -> FanDuel Sports Network Great Lakes
-    'ustv-f417b011-04a1-4550-938f-a01a41c9081b': 894, // FanDuel Indiana -> FanDuel Sports Network Indiana
     'ustv-70687cd8-11aa-4782-a303-eb43b01bb413': 384, // Food Network -> The Food Network
     'ustv-461a32d9-7e0a-4112-a194-3c819af43da8': 297, // Fox Business -> Fox Business
     'ustv-fd690365-5819-4319-9fa8-df82fe22933a': 301, // Freeform -> Freeform
     'ustv-17909d85-030e-4152-9de5-9e3d7143c41d': 758, // FS2 -> Fox Sports 2 USA
     'ustv-950f4f62-ed89-4d64-8628-da23099489fc': 279, // Fuse -> FUSE TV USA
+    'ustv-74728d74-03df-4c60-b3b7-69f1dfc4d8e7': 317, // FX -> FX USA
+    'ustv-a42663ac-2326-4b28-a7c6-989a27ba5bd6': 298, // FXX -> FXX USA
     'ustv-6eec683c-03c1-4044-b4a6-adbc130ca543': 665, // FYI -> FYI
     'ustv-925c7519-b24b-4075-b1d2-84d45bd3dcf0': 318, // Golf Channel -> GOLF Channel USA
+    'ustv-e38c3908-7c73-4bc5-bac6-fba8ce88a33b': 320, // Hallmark Channel -> The Hallmark Channel
     'ustv-126c1af6-b39c-4d79-8ba9-e50857f08772': 296, // Hallmark Mystery -> Hallmark Movies & Mysteries
+    'ustv-1cbed173-aaba-4ef1-9f13-07380ee69d4d': 321, // HBO -> HBO USA
+    'ustv-9550ea30-43ea-44a4-a4b3-138aeccc5169': 689, // HBO 2 -> HBO2 USA
     'ustv-3cdaf265-f0d7-414e-957e-7ccac07818aa': 690, // HBO Comedy -> HBO Comedy USA
     'ustv-3a857a03-51e5-4bed-a796-c0785663280c': 691, // HBO Family -> HBO Family USA
     'ustv-04137863-2391-4ec8-8e4d-d82946162ee1': 693, // HBO Signature -> HBO Signature USA
+    'ustv-d387c6d4-31c5-467f-afc4-891326b3c1ca': 694, // HBO Zone -> HBO Zone USA
     'ustv-c929c60f-9dc1-415a-8a7e-cc34256b2c87': 382, // HGTV -> HGTV
+    'ustv-e7b5bea9-febf-4118-9f0b-86a5eafc5507': 656, // IFC -> IFC TV USA
     'ustv-f4a7124d-7a6e-4e2e-908a-10b51e7ecf4e': 324, // Investigation Discovery  -> Investigation Discovery (ID USA)
-    'ustv-0443cb15-4abc-4f1a-9f6f-11ec690f281e': 326, // Lifetime -> Lifetime Network
     'ustv-87c6ef8e-58eb-41d9-b636-6936a65b8033': 770, // Marquee Sports Network -> Marquee Sports Network
     'ustv-9d9eb550-5dde-49d8-8b28-1bb725c6eac3': 662, // MeTV -> METV USA
     'ustv-758c5103-3ae7-481b-b06a-105367095900': 327, // MSNBC -> MSNBC
+    'ustv-7ff076f8-51df-4b5e-9a61-d3896b534034': 371, // MTV -> MTV USA
+    'ustv-c42b1f0f-8927-4927-83ec-260e771ef140': 328, // National Geographic  -> National Geographic (NGC)
     'ustv-741a4567-01ea-47e7-adc6-7d8e9c8f14aa': 53, // NBC -> NBC USA
     'ustv-cf43e372-261c-4fb9-8ca0-819586bbd944': 754, // NBC Sports Boston -> NBC Sports Boston
     'ustv-a59579be-1483-4ed2-bc61-f67d736c1080': 755, // NBC Sports California -> NBC Sports California
     'ustv-b2d3d015-d6b5-4bfe-9f64-b00a6636ef5e': 777, // NBC Sports Philadelphia -> NBC Sports Philadelphia
-    'ustv-928b8fbc-84ec-404e-a4a6-e05bcc74203d': 762, // NESN -> NESN USA
     'ustv-85afd380-e307-4bb3-a1b2-6901b6c0451a': 667, // NFL RedZone -> NFL RedZone
     'ustv-7a8bd02a-c334-450d-a7f8-64263a64757f': 329, // Nick Jr -> NICK JR
     'ustv-5513d11d-b8f7-4d27-89cd-f2f982dd95da': 649, // Nicktoons -> Nicktoons
     'ustv-c57b8324-9749-46ee-ba76-1b2c90983c05': 331, // Oprah Winfrey Network (OWN) -> Oprah Winfrey Network (OWN)
+    'ustv-733c0b85-264f-4135-b615-5930efa84351': 334, // Paramount Network -> Paramount Network
     'ustv-7b303fb9-9bde-4b7d-8adf-5c336e32aff7': 294, // Science Channel -> Science Channel
+    'ustv-2f81d453-b5cb-45a8-bbce-9d6f9d17c63f': 385, // SEC Network -> SEC Network USA
+    'ustv-74d2e5b1-bdb4-4975-a7f2-a4b9e8250d38': 333, // Showtime -> Showtime USA
     'ustv-1a0c22cc-2069-4ac7-b65d-bb0f33a7d81b': 792, // Showtime 2 -> Showtime 2 USA (SHO2) USA
     'ustv-af5fde41-f852-49eb-88a2-8dccd97f0a2c': 982, // Spectrum SportsNet -> Spectrum SportsNet USA
     'ustv-e44e18a9-3e8c-4a89-8561-54c3e672f25f': 764, // Spectrum SportsNet LA -> Spectrum Sportsnet LA
     'ustv-11e39cd9-89df-49d3-922e-b984ac4667a6': 759, // SportsNet New York -> SportsNet New York (SNY)
     'ustv-6e46064a-6d5c-4e5c-bfec-c90e9f67230a': 922, // SportsNet Pittsburgh -> SportsNet Pittsburgh
+    'ustv-19ee8cb3-7955-4b33-adce-7041f61359d0': 335, // Starz -> Starz
+    'ustv-a6ec637e-f2fc-4674-a652-0fef6d77674c': 970, // Starz Cinema -> Starz Cinema
+    'ustv-568b3305-05c6-48d3-a100-9213583ea0d5': 971, // Starz Comedy -> Starz Comedy
     'ustv-05b926f2-1b92-4328-a60f-960ffa0ae974': 658, // Sundance TV -> Sundance TV
+    'ustv-061d6c0b-9786-4ff7-a483-f025d6765a2b': 373, // SYFY -> SYFY USA
     'ustv-3e8788a9-bd9f-4dc2-966b-7d4533174493': 336, // TBS -> TBS USA
     'ustv-afcbd9a8-65b5-496b-a72f-a8a2c998688e': 644, // TCM -> TCM USA
     'ustv-adad5e7b-a45e-4f9a-bcfe-4a7445c2468e': 650, // TeenNick -> TeenNick
@@ -80,71 +98,53 @@ const DARK = {
     'ustv-eebb1fb1-3c8a-4304-a347-6a28ee7dcf09': 337, // TLC -> TLC
     'ustv-cf1724d6-153f-4c0d-982f-1332de7f2632': 338, // TNT -> TNT USA
     'ustv-c952f45e-73ae-4615-9cae-128749091758': 340, // Travel Channel -> Travel Channel
+    'ustv-228ceb43-26cc-47b9-a454-a0650d373c63': 341, // TruTV -> TruTV USA
     'ustv-8a206fc3-e87d-4283-a502-f186d596ff93': 342, // TV Land -> TVLAND
     'ustv-2d475b96-9351-4049-83e3-f0c164fe63cf': 132, // Univision -> Univision
     'ustv-e05984d6-82d8-4b9a-8955-6462b58e9241': 343, // USA Network -> USA Network
+    'ustv-90079556-db40-4744-ba02-3336c9179ad5': 344, // VH1 -> VH1 USA
+    'ustv-1e187ee1-e68a-469a-8588-8b08c0fc89a8': 659, // Vice TV -> VICE TV
+    'ustv-23117923-f2cb-4297-bbab-df386bc7ac61': 655, // We TV -> WETV USA
+    'ustv-b5898650-1c8f-49c2-92af-f632b2c8b751': 763, // YES Network -> YES Network USA
 };
 
 const EXTRA = {
     'ustv-1a0b178a-23c5-4c06-9217-ceabe2897343': 51, // ABC -> ABC USA
-    'ustv-f60b61af-2484-4d52-956c-db6ba4a06d76': 304, // Animal Planet -> Animal Planet
     'ustv-65290745-c96e-4be8-a3e0-815712ffdc02': 349, // BBC News -> BBC News Channel HD
-    'ustv-0710a105-0285-4ad7-ad52-57b74b7b4436': 397, // Big Ten Network -> BIG TEN Network (BTN USA)
-    'ustv-9f8101b3-a465-47e7-8554-d8bbd80cea08': 648, // Boomerang -> Boomerang
-    'ustv-73bce33c-1a7e-47b9-938b-3c9cbf156c20': 339, // Cartoon Network -> Cartoon Network
-    'ustv-95d0df98-c758-46e4-af07-5b69dc1c3758': 52, // CBS -> CBS USA
-    'ustv-7ba81bf7-3bb4-43c1-946f-bfff70198dd9': 910, // CBS Sports Golazo Network -> CBS Sports Golazo
-    'ustv-f687826d-6325-47cf-afbb-0f91bc5ed5f9': 374, // Cinemax -> Cinemax USA
+    'ustv-f6141a0c-e163-49e8-b98c-ea2fb58feea3': 306, // BET -> BET USA
+    'ustv-cd865868-4b32-477d-b611-8d4c06ba1911': 307, // Bravo -> Bravo USA
     'ustv-de1092e3-23c9-40b8-9cd1-c1c11bfb262a': 345, // CNN -> CNN USA
     'ustv-9d1b2a5c-f2df-45cc-af56-e9c15f07851a': 696, // Comet -> Comet USA
     'ustv-fae82152-f3d0-41e5-b520-4b7dc136609d': 281, // Court TV -> Court TV USA
-    'ustv-fdd7d919-550f-4be5-b879-6654a5d66bfe': 651, // Destination America -> Destination America
-    'ustv-037691f3-c5f8-4d03-85bf-f0b099febe65': 313, // Discovery Channel -> Discovery Channel
-    'ustv-b25e9331-bc95-4e31-afaf-54301ff1d1dd': 314, // Disney XD -> Disney XD
     'ustv-65dacef4-2e0a-4a86-9963-21870425c42b': 315, // E! Entertainment Television -> E! Entertainment Television
     'ustv-3902457a-7818-4fbe-8209-9d43a903c784': 54, // Fox -> FOX USA
     'ustv-5bfcd946-51a1-4604-ac26-1ec96a899f63': 643, // Fox Deportes -> FOX Deportes USA
     'ustv-7041e64c-37e3-430e-9a09-f4cf7d8c56de': 347, // Fox News -> Fox News
     'ustv-981759cb-046d-4bbd-8f46-319a6b3d654b': 775, // Fox Weather -> Fox Weather Channel
-    'ustv-74728d74-03df-4c60-b3b7-69f1dfc4d8e7': 317, // FX -> FX USA
+    'ustv-3a01ed05-44c1-4c7a-aaff-4775c515d702': 39, // FS1 -> Fox Sports 1 USA
     'ustv-d468ed11-c030-418f-93a0-e77b8bf2bc75': 381, // FX Movie Channel -> FX Movie Channel
-    'ustv-a42663ac-2326-4b28-a7c6-989a27ba5bd6': 298, // FXX -> FXX USA
     'ustv-f0fb7e11-56cf-4595-ab32-e357143f2591': 319, // Game Show Network -> Game Show Network
-    'ustv-e38c3908-7c73-4bc5-bac6-fba8ce88a33b': 320, // Hallmark Channel -> The Hallmark Channel
-    'ustv-1cbed173-aaba-4ef1-9f13-07380ee69d4d': 321, // HBO -> HBO USA
-    'ustv-9550ea30-43ea-44a4-a4b3-138aeccc5169': 689, // HBO 2 -> HBO2 USA
-    'ustv-d387c6d4-31c5-467f-afc4-891326b3c1ca': 694, // HBO Zone -> HBO Zone USA
     'ustv-0a4782bd-5d12-4b97-9f74-4f3f3f6512c3': 322, // History -> History USA
-    'ustv-e7b5bea9-febf-4118-9f0b-86a5eafc5507': 656, // IFC -> IFC TV USA
     'ustv-aaad2ad4-7621-40d4-b0bb-8da90ad12b5d': 325, // Ion -> ION USA
     'ustv-7c66220c-0e36-429c-ba2d-7cd6d552b371': 278, // Law & Crime -> Law & Crime Network
+    'ustv-0443cb15-4abc-4f1a-9f6f-11ec690f281e': 326, // Lifetime -> Lifetime Network
+    'ustv-7a1ff7dc-27ec-4028-82ae-7999aea0bb66': 389, // Lifetime Movie Network -> Lifetime Movies Network
     'ustv-b5e845d0-a157-4cab-9e1f-8917064067ec': 399, // MLB Network -> MLB Network USA
     'ustv-27781814-d39d-4913-bcd1-58e7e1da4a0d': 765, // MSG -> MSG USA
-    'ustv-7ff076f8-51df-4b5e-9a61-d3896b534034': 371, // MTV -> MTV USA
-    'ustv-c42b1f0f-8927-4927-83ec-260e771ef140': 328, // National Geographic  -> National Geographic (NGC)
+    'ustv-b1d2b06e-80dc-4e15-b648-5567dc05f1c8': 745, // National Geographic Wild -> Nat Geo Wild USA
     'ustv-1b42e46c-90f5-430f-8cca-78717302ad15': 404, // NBA TV -> NBA TV USA
     'ustv-05bb54a8-395c-4c03-ab4e-30fef9e0a532': 753, // NBC Sports Bay Area -> NBC Sports Bay Area
+    'ustv-928b8fbc-84ec-404e-a4a6-e05bcc74203d': 762, // NESN -> NESN USA
     'ustv-0245f37e-6ee6-44d2-9c69-3b3bc4dc30b9': 405, // NFL Network -> NFL Network
     'ustv-7e6eda02-4d13-4ff0-a087-c0cf5d368e0f': 663, // NHL Network -> NHL Network USA
+    'ustv-34816a47-4eb5-4ee1-862a-dd277ce9e36b': 330, // Nickelodeon -> NICK
     'ustv-a8f8f597-c89f-4fb7-9e8e-f773560b5cda': 848, // Outdoor Channel -> Outdoor Channel USA
     'ustv-32be7b7a-a095-4888-868b-61873bd031a8': 332, // Oxygen True Crime -> Oxygen True Crime
-    'ustv-733c0b85-264f-4135-b615-5930efa84351': 334, // Paramount Network -> Paramount Network
     'ustv-4b227650-ac64-4e72-abeb-37c3be65e1df': 210, // PBS -> PBS USA
     'ustv-5a100578-58ff-4adb-86b0-0efb6de977c1': 646, // Racer Network -> Racer TV USA
     'ustv-b22f899b-e232-4944-8843-9aa91b5337e5': 293, // Reelz -> Reelz Channel
-    'ustv-2f81d453-b5cb-45a8-bbce-9d6f9d17c63f': 385, // SEC Network -> SEC Network USA
-    'ustv-74d2e5b1-bdb4-4975-a7f2-a4b9e8250d38': 333, // Showtime -> Showtime USA
-    'ustv-19ee8cb3-7955-4b33-adce-7041f61359d0': 335, // Starz -> Starz
-    'ustv-a6ec637e-f2fc-4674-a652-0fef6d77674c': 970, // Starz Cinema -> Starz Cinema
-    'ustv-568b3305-05c6-48d3-a100-9213583ea0d5': 971, // Starz Comedy -> Starz Comedy
-    'ustv-061d6c0b-9786-4ff7-a483-f025d6765a2b': 373, // SYFY -> SYFY USA
     'ustv-49e1c52c-7f0d-43f0-926b-28ed5e1039ce': 40, // Tennis Channel -> Tennis Channel
-    'ustv-228ceb43-26cc-47b9-a454-a0650d373c63': 341, // TruTV -> TruTV USA
     'ustv-ca653ee3-196b-4c32-b204-dd0d4849deea': 660, // TV One -> TV ONE USA
-    'ustv-90079556-db40-4744-ba02-3336c9179ad5': 344, // VH1 -> VH1 USA
-    'ustv-1e187ee1-e68a-469a-8588-8b08c0fc89a8': 659, // Vice TV -> VICE TV
-    'ustv-23117923-f2cb-4297-bbab-df386bc7ac61': 655, // We TV -> WETV USA
-    'ustv-b5898650-1c8f-49c2-92af-f632b2c8b751': 763, // YES Network -> YES Network USA
 };
 
 module.exports = { DARK, EXTRA };

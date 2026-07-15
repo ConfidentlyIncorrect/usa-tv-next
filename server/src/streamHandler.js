@@ -15,6 +15,7 @@ const channelMap = require('./channelMap');
 const log = require('./log')('StreamHandler');
 const proxy = require('./proxy');
 const dlhd = require('./dlhd');
+const damitv = require('./damitv');
 
 // --- EPG guide string (for the NuvioTV custom fork's focus-reactive left panel) ------------
 // We attach the CHANNEL's now/next to each stream as a non-standard `epg` field. The fork's
@@ -147,11 +148,13 @@ function normalizeStream(s) {
     const behaviorHints = Object.assign({ notWebReady: true }, s.behaviorHints || {});
     let url = s.url;
     // Our own /dlhd endpoints are already clean HTTPS on our host — never re-wrap them.
-    const isOwnDlhd = url.includes(dlhd.PREFIX) && proxy.publicBase() && url.startsWith(proxy.publicBase());
+    const base = proxy.publicBase();
+    const isOwnDynamic = base && url.startsWith(base)
+        && (url.includes(dlhd.PREFIX) || url.includes(damitv.PREFIX));
     // When the proxy is active (we know our public base), route fragile upstreams through
     // our HTTPS /proxy so the client gets a clean URL and segments are fetched server-side
     // with proper headers.
-    if (!isOwnDlhd && proxy.proxyActive() && isFragile(url)) {
+    if (!isOwnDynamic && proxy.proxyActive() && isFragile(url)) {
         url = proxy.proxyUrl(url);
         // The proxy already injects headers upstream; the client talks plain HTTPS to us.
         delete behaviorHints.proxyHeaders;
@@ -195,6 +198,22 @@ async function handleStream({ type, id }) {
                     url,
                     name: `${(ch && ch.name) || 'Channel'} (HD)`,
                     description: 'DaddyLive',
+                    behaviorHints: { notWebReady: true },
+                });
+            }
+        }
+
+        // Persistent Damitv feeds are manually vetted before they enter the allowlist. Their
+        // signed HLS URLs are refreshed server-side and exposed as one stable local URL.
+        const damitvId = damitv.sourceIdForRoster(id);
+        if (damitvId && proxy.proxyActive()) {
+            const url = damitv.masterUrlFor(damitvId);
+            if (url) {
+                const ch = data.getChannelById(id);
+                allowed.push({
+                    url,
+                    name: `${(ch && ch.name) || 'Channel'} (FHD)`,
+                    description: 'Damitv',
                     behaviorHints: { notWebReady: true },
                 });
             }

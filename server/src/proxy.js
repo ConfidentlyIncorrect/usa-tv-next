@@ -80,16 +80,20 @@ function decodeTarget(token) {
 
 // --- header policy ---------------------------------------------------------
 
-function upstreamHeaders(targetUrl, clientReq) {
+function upstreamHeaders(targetUrl, clientReq, refererOverride = '') {
     let origin = '';
+    let refererOrigin = '';
     try {
         const u = new URL(targetUrl);
         origin = `${u.protocol}//${u.host}`;
     } catch { /* ignore */ }
+    if (refererOverride) {
+        try { refererOrigin = new URL(refererOverride).origin; } catch { /* ignore */ }
+    }
     const h = { 'User-Agent': cfg.PROXY_USER_AGENT };
     if (origin) {
-        h.Referer = origin + '/';
-        h.Origin = origin;
+        h.Referer = refererOverride || (origin + '/');
+        h.Origin = refererOrigin || origin;
     }
     // Pass through Range so seeking / segment byte-ranges work.
     const range = clientReq.headers['range'];
@@ -185,10 +189,29 @@ async function handle(req, res) {
         return res.end('bad proxy target');
     }
 
+    const requestUrl = new URL(req.url, 'http://proxy.local');
+    const isDlhd = requestUrl.searchParams.get('o') === 'dlhd';
+    const refererToken = isDlhd ? requestUrl.searchParams.get('ref') : '';
+    const refererOverride = refererToken ? decodeTarget(refererToken) : null;
+
+    // Route through the VPN (DLHD_OUTBOUND_PROXY) when: (a) the child is dlhd-tagged (?o=dlhd), or
+    // (b) the target host is in PROXY_VPN_HOSTS (a non-dlhd feed that also rejects datacenter IPs,
+    // e.g. Toonami Aftermath). The whole chain (master/variant/segment share the host) follows.
+    // Everything else (tvpass/xumo/…) stays direct.
+    const viaVpn = isDlhd
+        || cfg.PROXY_VPN_HOSTS.some((h) => target.toLowerCase().includes(h));
+    // DaddyLive's CDN now requires the rotating embed page as Referer. Preserve it when a
+    // proxied child is itself another manifest so every descendant (segments/keys/maps) gets
+    // the same egress and header context.
+    const childSuffix = isDlhd
+        ? `?o=dlhd${refererOverride ? `&ref=${encodeTarget(refererOverride)}` : ''}`
+        : (viaVpn ? '?o=dlhd' : '');
+    const cacheKey = `${target}\n${refererOverride || ''}`;
+
     // Fast path: a recently-rewritten manifest for this exact target is reusable as-is.
     // Only manifests are ever cached; segment requests carry a Range and always go upstream.
     if (!req.headers['range']) {
-        const cached = _cacheGet(target);
+        const cached = _cacheGet(cacheKey);
         if (cached !== null) {
             res.statusCode = 200;
             res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
@@ -205,16 +228,10 @@ async function handle(req, res) {
     const onClientClose = () => controller.abort();
     req.on('close', onClientClose);
 
-    // Route through the VPN (DLHD_OUTBOUND_PROXY) when: (a) the child is dlhd-tagged (?o=dlhd), or
-    // (b) the target host is in PROXY_VPN_HOSTS (a non-dlhd feed that also rejects datacenter IPs,
-    // e.g. Toonami Aftermath). The whole chain (master/variant/segment share the host) follows.
-    // Everything else (tvpass/xumo/…) stays direct.
-    const viaVpn = /[?&]o=dlhd\b/.test(req.url)
-        || cfg.PROXY_VPN_HOSTS.some((h) => target.toLowerCase().includes(h));
     const dispatcher = viaVpn ? outbound.dlhdDispatcher() : undefined;
     try {
         const upstream = await fetch(target, {
-            headers: upstreamHeaders(target, req),
+            headers: upstreamHeaders(target, req, refererOverride || ''),
             redirect: 'follow',
             signal: controller.signal,
             dispatcher,
@@ -230,11 +247,11 @@ async function handle(req, res) {
                 res.setHeader('Content-Type', ctype || 'application/octet-stream');
                 return res.end(text);
             }
-            const rewritten = rewriteManifest(text, upstream.url || target);
+            const rewritten = rewriteManifest(text, upstream.url || target, childSuffix);
             // Cache only good manifests; masters live longer than media playlists.
             if (upstream.status === 200) {
                 const isMaster = /#EXT-X-STREAM-INF/.test(text);
-                _cachePut(target, rewritten,
+                _cachePut(cacheKey, rewritten,
                     isMaster ? _MANIFEST_TTL_MASTER_MS : _MANIFEST_TTL_MEDIA_MS);
             }
             res.statusCode = 200;
@@ -284,9 +301,16 @@ async function handle(req, res) {
     }
 }
 
-/** Absolute proxy URL for a target, using the configured/auto-detected public base. */
+/**
+ * Absolute proxy URL for a target, using the configured/auto-detected public base.
+ *
+ * The opaque base64url path intentionally hides the upstream extension.  Add an explicit
+ * HLS format hint so clients that infer the media source from the URL (notably Nuvio after
+ * it stopped actively probing MIME types) still construct an HlsMediaSource.  handle()
+ * strips the query before decoding the target, so this remains backwards-compatible.
+ */
 function proxyUrl(target) {
-    return `${publicBase()}${PREFIX}${encodeTarget(target)}`;
+    return `${publicBase()}${PREFIX}${encodeTarget(target)}?format=m3u8`;
 }
 
 module.exports = {
