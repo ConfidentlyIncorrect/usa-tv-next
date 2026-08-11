@@ -156,11 +156,6 @@ sources:
     branch: master
 
   - type: github
-    repo: onlylove2023/iptv
-    paths: ["*.m3u", "*.txt"]
-    branch: main
-
-  - type: github
     repo: 4yt1k/m3u-autoupdate
     paths: ["output/result.m3u", "output/user_result.m3u"]
     branch: master
@@ -223,11 +218,6 @@ sources:
 
   - type: github
     repo: ashik4u/mrgify-clean
-    paths: ["*.m3u"]
-    branch: main
-
-  - type: github
-    repo: MARIKO578/IPTV
     paths: ["*.m3u"]
     branch: main
 
@@ -437,11 +427,6 @@ sources:
     url: https://u.m3uiptv.com/category/free-iptv-m3u-2026-1/
     strategy: deep_scrape
 
-  - type: website
-    name: emucodes6
-    url: https://emucodes6.blogspot.com/
-    strategy: deep_scrape
-
 
   - type: website
     name: firesticktricks
@@ -579,11 +564,6 @@ sources:
   # Chinese forks mentioned in report "25 more" list
   - type: github
     repo: iptvjs/iptv-api
-    paths: ["output/result.m3u", "output/ipv4/result.m3u"]
-    branch: master
-
-  - type: github
-    repo: KevinTang01/iptv-api
     paths: ["output/result.m3u", "output/ipv4/result.m3u"]
     branch: master
 
@@ -804,11 +784,6 @@ sources:
     strategy: link_scrape
 
 
-  - type: website
-    name: morettiflix-es
-    url: https://morettiflix.com/mejores-listas-iptv-m3u-gratis-2026
-    strategy: link_scrape
-
 
   - type: website
     name: renkz
@@ -818,11 +793,6 @@ sources:
   - type: website
     name: mediumtoday
     url: https://www.mediumtoday.com/13-best-free-m3u-playlists-that-actually-work-in-2026/
-    strategy: link_scrape
-
-  - type: website
-    name: rdphostings
-    url: https://blog.rdphostings.com/iptv-github-playlist
     strategy: link_scrape
 
 

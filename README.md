@@ -178,7 +178,7 @@ Python ≥3.10 managed with `uv`; stream testing needs `ffprobe` (ffmpeg). Run o
 ```bash
 uv sync                                       # install deps
 
-# discover + test + inject from 167 configured sources (sources.yaml)
+# discover + test + inject from 161 configured sources (sources.yaml)
 uv run python -m harvester harvest            # scrape all sources for M3U/JSON streams
 uv run python -m harvester test               # ffprobe-test (DNS pre-filter + ffprobe)
 uv run python -m harvester inject             # match working streams to catalog channels
@@ -204,7 +204,7 @@ Notes:
 
 ## Sources
 
-167 sources in `sources.yaml` across 6 handler types (`github`, `direct`, `website`, `telegram`, `paste`, `famelack`). Notably **famelack** (`harvester/sources/famelack.py`) reads famelack.com's current US dataset (1,541 channels in the 2026-07-15 snapshot) straight from its public GitHub repo — no scraping. Pluto TV sources have been removed.
+161 sources in `sources.yaml` across 6 handler types (`github`, `direct`, `website`, `telegram`, `paste`, `famelack`). Notably **famelack** (`harvester/sources/famelack.py`) reads famelack.com's current US dataset (1,541 channels in the 2026-07-15 snapshot) straight from its public GitHub repo — no scraping. Pluto TV sources have been removed.
 
 ## Structure
 

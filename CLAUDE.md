@@ -8,7 +8,7 @@ Stremio addon serving free IPTV streams for US television channels. Ships in **t
 ## Quick Reference
 
 ```bash
-uv run python -m harvester harvest          # Scrape all 167 sources for M3U streams
+uv run python -m harvester harvest          # Scrape all 161 sources for M3U streams
 uv run python -m harvester test             # Test streams with ffprobe (DNS pre-filter + ffprobe)
 uv run python -m harvester test --limit 100 # Test first N streams only
 uv run python -m harvester report           # Generate report from test results
@@ -63,7 +63,7 @@ catalog/tv/all.json        — Master catalog: 281 channels with metadata + stre
 catalog/tv/all/genre=*.json — Per-genre catalog slices (10 genres)
 meta/tv/ustv-*.json        — Individual channel meta files (281, 1:1 with catalog)
 stream/tv/ustv-*.json      — Per-channel stream files (281, 1:1 with catalog; empty files are dynamically covered)
-sources.yaml               — 167 source definitions (GitHub repos, direct URLs, websites, Telegram, paste)
+sources.yaml               — 161 source definitions (GitHub repos, direct URLs, websites, Telegram, paste)
 harvester/                 — Python scraping + testing + injection pipeline
 data/                      — Harvested streams, test results, state (gitignored)
 public/                    — Logo and background images
@@ -102,13 +102,13 @@ Each channel is a Stremio meta object: `{id, name, genres, poster, posterShape, 
 
 ## Sources (`sources.yaml`)
 
-167 sources across 6 types:
+161 sources across 6 types:
 
 | Type | Count | Handler | Notes |
 |------|-------|---------|-------|
-| github | 71 | `sources/github.py` | Raw file fetch, tree API for globs, brute-force common M3U paths as fallback |
+| github | 68 | `sources/github.py` | Raw file fetch, tree API for globs, brute-force common M3U paths as fallback |
 | direct | 56 | `sources/direct.py` | Direct M3U/M3U8 URLs |
-| website | 30 | `sources/website.py` | HTML scraping for M3U links + Xtream Codes URLs |
+| website | 27 | `sources/website.py` | HTML scraping for M3U links + Xtream Codes URLs |
 | telegram | 8 | `sources/telegram.py` | Public Telegram channel scraping |
 | paste | 1 | `sources/paste.py` | Paste site scraping |
 | famelack | 1 | `sources/famelack.py` | Famelack's US dataset, gzipped JSON on GitHub (1,541 channels on 2026-07-15); current URLs are under `sources.streams`, with legacy `stream_urls` compatibility. Drops `isGeoBlocked` unless `strategy: include_geoblocked` |
